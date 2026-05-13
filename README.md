@@ -1,3 +1,23 @@
+## MedFlow AI (backend)
+
+Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
+
+### Dates and time (Stage 2)
+
+- **`dateTime` is stored in UTC** in PostgreSQL. Send ISO 8601 strings from clients (e.g. `2026-06-01T10:00:00.000Z`).
+- **`GET /api/appointments/next`** returns the single earliest appointment with `dateTime >= now`, where `now` is the server clock (typically UTC in production).
+- **`GET /api/appointments/upcoming`** lists future appointments from an optional `from` query (ISO datetime); default `from` is now. Query `limit` defaults to `20` (max `100`).
+
+### Stage 2 API surface
+
+| Area | Endpoints |
+|------|-----------|
+| Notes | Part of appointment create/update/list responses (`notes` field). |
+| Requirements (checklist) | `POST/GET/PATCH/DELETE` under `/api/appointments/:appointmentId/requirements` |
+| Convenience | `GET /api/appointments/upcoming`, `GET /api/appointments/next` |
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
