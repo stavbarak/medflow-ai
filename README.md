@@ -16,6 +16,17 @@ Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
 | Requirements (checklist) | `POST/GET/PATCH/DELETE` under `/api/appointments/:appointmentId/requirements` |
 | Convenience | `GET /api/appointments/upcoming`, `GET /api/appointments/next` |
 
+### Stage 3 — AI (extraction + grounded Q&A)
+
+Requires **`OPENAI_API_KEY`** (see [`.env.example`](.env.example)). Optional: `OPENAI_MODEL`, `OPENAI_BASE_URL`, **`PATIENT_NAME`** (Hebrew label for prompts; defaults to a generic “single patient / father” wording).
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/query/answer` | Body `{ "question": "..." }` → `{ "answer": "..." }`. Answers use **only** upcoming appointments + requirements from the DB, phrased in Hebrew via the model. JWT required. |
+| `POST /api/ai/extract` | Body `{ "text": "..." }` → validated partial extraction (`title`, `dateTime`, `location`, `notes`, `requirements[]`). JWT required. |
+
+Answers and extraction errors exposed to users are in **Hebrew** where applicable. No live OpenAI calls in unit tests by default.
+
 ### Local database (Docker)
 
 PostgreSQL matches [`.env.example`](.env.example): user `postgres`, password `postgres`, database `medflow`, port `5432`.

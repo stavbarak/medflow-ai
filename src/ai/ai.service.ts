@@ -7,11 +7,15 @@ import { validateAppointmentExtraction } from './ai-validation';
 export class AiService {
   private readonly client: OpenAI | null;
   private readonly model: string;
+  /** Single-patient context for prompts (Hebrew). */
+  private readonly patientLabel: string;
 
   constructor(private readonly config: ConfigService) {
     const key = this.config.get<string>('OPENAI_API_KEY');
     const baseURL = this.config.get<string>('OPENAI_BASE_URL');
     this.model = this.config.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';
+    this.patientLabel =
+      this.config.get<string>('PATIENT_NAME')?.trim() || 'אבא (מטופל יחיד)';
     this.client = key
       ? new OpenAI({
           apiKey: key,
@@ -40,7 +44,7 @@ export class AiService {
       messages: [
         {
           role: 'system',
-          content: `You extract medical appointment information from Hebrew text for ONE patient (father). Return a JSON object only, with optional keys: title (string), dateTime (ISO 8601 string in local Israel context if year missing use current/next plausible date), location (string), notes (string), requirements (array of { description: string }). Use Hebrew text values where appropriate. If a field is unknown, omit it.`,
+          content: `You extract medical appointment information from Hebrew text for ONE patient only (context: ${this.patientLabel}). Return a JSON object only, with optional keys: title (string), dateTime (ISO 8601 string in local Israel context if year missing use current/next plausible date), location (string), notes (string), requirements (array of { description: string }). Use Hebrew text values where appropriate. If a field is unknown, omit it.`,
         },
         { role: 'user', content: text },
       ],
