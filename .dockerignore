@@ -1,0 +1,14 @@
+node_modules
+dist
+web/node_modules
+web/dist
+.git
+.env
+.env.*
+!.env.example
+coverage
+*.log
+plans
+.cursor
+**/*.spec.ts
+test

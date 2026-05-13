@@ -45,7 +45,7 @@ The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same**
 
 ### Minimal SPA (`web/`)
 
-React + Vite app (RTL Hebrew UI): login/register, next appointment, AI question box, appointments table. Proxies `/api` → `http://localhost:3000` during dev.
+React + Vite app (RTL Hebrew UI): login/register, next appointment, AI question box, appointments table. In dev, Vite **proxies** `/api` → `http://localhost:3000`. For a **hosted** API, build with `VITE_API_BASE_URL=https://your-api-host.up.railway.app` (no trailing slash) and add that SPA origin to **`CORS_ORIGINS`** on the API.
 
 ```bash
 # Terminal 1 — API
@@ -74,6 +74,56 @@ Stop/remove containers (data kept in the Docker volume until you remove it):
 ```bash
 docker compose down
 ```
+
+### Deploy on Railway
+
+The repo includes a **[`Dockerfile`](Dockerfile)** (Node 20 + Prisma generate + Nest build) and **[`railway.toml`](railway.toml)** so Railway builds from Docker. Each deploy runs **`prisma migrate deploy`** then starts the API.
+
+#### 1. Create the project
+
+1. Sign in at [railway.app](https://railway.app) → **New project** → **Deploy from GitHub** → pick this repo.
+2. Railway creates a service; ensure it uses the **Dockerfile** (default when `railway.toml` is present).
+
+#### 2. Add PostgreSQL
+
+1. In the project → **New** → **Database** → **PostgreSQL**.
+2. Open your **API** service → **Variables** → **Reference variable** → choose the Postgres plugin’s **`DATABASE_URL`** (or copy `DATABASE_URL` from the Postgres service into the API service). The API and Prisma expect this name.
+
+#### 3. Set required variables (API service)
+
+| Variable | Notes |
+|----------|--------|
+| `JWT_SECRET` | Long random string (required). |
+| `CORS_ORIGINS` | Optional. Comma-separated origins for your hosted SPA (e.g. `https://medflow-web.vercel.app`). Localhost stays allowed without this. |
+| `OPENAI_API_KEY` | If you use AI / WhatsApp extraction. |
+| `WHATSAPP_*` | As in [`.env.example`](.env.example) when WhatsApp is live. |
+
+**`PORT`** is set automatically by Railway — the app already reads `process.env.PORT`.
+
+#### 4. Public URL & Meta webhook
+
+1. API service → **Settings** → **Networking** → **Generate domain** (e.g. `https://medflow-api-production.up.railway.app`).
+2. WhatsApp webhook callback: `https://<your-railway-domain>/api/whatsapp/webhook`.
+
+#### 5. Seed (one-off)
+
+After first successful deploy, open the API service → **Shell** (or use Railway CLI):
+
+```bash
+npm run prisma:seed
+```
+
+Or from your machine with Railway CLI: `railway run npm run prisma:seed` (after `railway link`).
+
+#### 6. Deploy the SPA elsewhere (optional)
+
+Build the Vite app with your Railway API origin:
+
+```bash
+VITE_API_BASE_URL=https://your-railway-domain.up.railway.app npm run build --prefix web
+```
+
+Host `web/dist` on Vercel / Netlify / Cloudflare Pages. Add that site’s origin to **`CORS_ORIGINS`** on Railway.
 
 ---
 

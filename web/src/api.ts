@@ -12,6 +12,19 @@ export function setToken(token: string | null): void {
   }
 }
 
+/** Dev: empty → same-origin + Vite proxy. Prod: set `VITE_API_BASE_URL` to API origin (e.g. `https://medflow-api.up.railway.app`). */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
+  /\/$/,
+  '',
+) ?? '';
+
+function apiUrl(path: string): string {
+  if (path.startsWith('http')) {
+    return path;
+  }
+  return `${API_BASE}${path}`;
+}
+
 async function parseError(res: Response): Promise<string> {
   const text = await res.text();
   try {
@@ -41,7 +54,7 @@ export async function api<T>(
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(apiUrl(path), { ...options, headers });
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
