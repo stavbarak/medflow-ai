@@ -16,6 +16,24 @@ Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
 | Requirements (checklist) | `POST/GET/PATCH/DELETE` under `/api/appointments/:appointmentId/requirements` |
 | Convenience | `GET /api/appointments/upcoming`, `GET /api/appointments/next` |
 
+### Local database (Docker)
+
+PostgreSQL matches [`.env.example`](.env.example): user `postgres`, password `postgres`, database `medflow`, port `5432`.
+
+```bash
+docker compose up -d
+cp .env.example .env   # set JWT_SECRET (and other secrets) before production
+npx prisma migrate deploy
+npm run prisma:seed
+npm run start:dev
+```
+
+Stop/remove containers (data kept in the Docker volume until you remove it):
+
+```bash
+docker compose down
+```
+
 ---
 
 <p align="center">
