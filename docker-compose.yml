@@ -3,8 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: medflow-postgres
     restart: unless-stopped
+    # Host port: change the left side if 5434 is taken on your machine (e.g. '15432:5432').
     ports:
-      - '5432:5432'
+      - '5434:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

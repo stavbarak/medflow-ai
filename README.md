@@ -27,9 +27,23 @@ Requires **`OPENAI_API_KEY`** (see [`.env.example`](.env.example)). Optional: `O
 
 Answers and extraction errors exposed to users are in **Hebrew** where applicable. No live OpenAI calls in unit tests by default.
 
+### Minimal SPA (`web/`)
+
+React + Vite app (RTL Hebrew UI): login/register, next appointment, AI question box, appointments table. Proxies `/api` → `http://localhost:3000` during dev.
+
+```bash
+# Terminal 1 — API
+npm run start:dev
+
+# Terminal 2 — UI (after: cd MedFlowAI && npm install --prefix web)
+npm run web:dev
+```
+
+Open **http://localhost:5173**. Ensure DB migrated + seeded; use seed users or register. For **Stage 3** questions, set `OPENAI_API_KEY` in `.env`.
+
 ### Local database (Docker)
 
-PostgreSQL matches [`.env.example`](.env.example): user `postgres`, password `postgres`, database `medflow`, port `5432`.
+PostgreSQL matches [`.env.example`](.env.example): user `postgres`, password `postgres`, database `medflow`. **Docker maps Postgres to host port `5434`** to reduce clashes with services on `5432`–`5433`. If `5434` is also taken, edit `docker-compose.yml` (left side of `ports`) and the port in `DATABASE_URL`.
 
 ```bash
 docker compose up -d
