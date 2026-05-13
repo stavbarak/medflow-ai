@@ -27,6 +27,22 @@ Requires **`OPENAI_API_KEY`** (see [`.env.example`](.env.example)). Optional: `O
 
 Answers and extraction errors exposed to users are in **Hebrew** where applicable. No live OpenAI calls in unit tests by default.
 
+### Stage 4 — WhatsApp (Meta Cloud API)
+
+The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same** appointment + AI logic as the REST API.
+
+| Behavior | Details |
+|----------|---------|
+| **Webhook** | `GET /api/whatsapp/webhook` — Meta verification (`hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**). `POST /api/whatsapp/webhook` — inbound messages (expects Meta **WhatsApp Cloud API** JSON). |
+| **Signature** | If **`WHATSAPP_APP_SECRET`** is set, `X-Hub-Signature-256` is verified (requires Nest `rawBody`, already enabled). If unset, signature check is skipped (dev only). |
+| **Who can write** | The sender’s number must match a **`User.phoneNumber`** in the DB (international digits, e.g. `972501234567` like the seed). Otherwise a short Hebrew “not registered” reply is sent (or logged). |
+| **Routing** | Messages that look like **questions** (e.g. end with `?`, or Hebrew question-style) → grounded **`QueryService`**. Other text → **AI extraction** → new **appointment** (+ optional **requirements**). |
+| **Outbound** | If **`WHATSAPP_ACCESS_TOKEN`** and **`WHATSAPP_PHONE_NUMBER_ID`** are set, replies are sent via Graph API. If either is missing, the intended reply is **only logged** (`[WhatsApp לא מוגדר]`) — useful for local testing without Meta tokens. |
+
+**AI:** Set **`OPENAI_API_KEY`** for extraction and Q&A over WhatsApp.
+
+**Expose your local API to Meta:** Meta needs a **public HTTPS** URL. Use a tunnel (e.g. [ngrok](https://ngrok.com/)) pointing at `http://localhost:3000`, then in the Meta Developer app set **Callback URL** to `https://<your-tunnel>/api/whatsapp/webhook` and the same **Verify token** as `WHATSAPP_VERIFY_TOKEN`.
+
 ### Minimal SPA (`web/`)
 
 React + Vite app (RTL Hebrew UI): login/register, next appointment, AI question box, appointments table. Proxies `/api` → `http://localhost:3000` during dev.
