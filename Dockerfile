@@ -20,4 +20,4 @@ ENV NODE_ENV=production
 EXPOSE 3000
 
 # Railway sets PORT; migrate then start API
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]

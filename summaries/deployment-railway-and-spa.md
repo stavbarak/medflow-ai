@@ -12,7 +12,7 @@ We build a **single container image** that:
 2. Installs **`openssl`** and CA certs—Prisma and HTTPS clients expect a normal trust store.
 3. Copies **`package.json` / lockfile**, **`prisma/`**, **`src/`**, and Nest config files—**not** the whole monorepo junk drawer (see `.dockerignore`).
 4. Runs **`npm ci` → `prisma generate` → `nest build`** at image build time so the running container already contains **`dist/`**.
-5. Starts with: **`prisma migrate deploy`** then **`node dist/main.js`**.  
+5. Starts with: **`prisma migrate deploy`** then **`node dist/src/main.js`** (Nest emits `src/` under `dist/` with the current `tsconfig`).  
    That means every deploy applies pending migrations **before** accepting traffic—simple and explicit.
 
 ### `.dockerignore`
@@ -51,6 +51,13 @@ Could you force this onto Vercel with enough adapters? Maybe. Would it be simple
 2. **New Railway project → Deploy from GitHub** → select repo.
 3. **Add Postgres** → connect **`DATABASE_URL`** into the API service.
 4. Set **`JWT_SECRET`** (and AI / WhatsApp vars when ready).
+
+### If the container exits right away (common)
+
+- **`JWT_SECRET` missing** — Nest throws `Configuration key "JWT_SECRET" does not exist` during boot. Fix: add **`JWT_SECRET`** in Railway → your API service → **Variables** (long random string), then redeploy.
+- **`DATABASE_URL` missing** — fails at **`prisma migrate deploy`** in the Docker `CMD`. Fix: add Postgres to the project and **reference** its `DATABASE_URL` on the API service (same variable name Prisma expects).
+
+Railway’s UI sometimes labels the stack as **Node** even when the **Dockerfile** builds the image; what matters is that the service actually builds from the repo **`Dockerfile`** (see [`railway.toml`](railway.toml)). If you ever see an unexpected Node version, open **Settings → Build** and confirm **Dockerfile** is selected.
 5. **Generate a public domain** for the service.
 6. Point Meta’s webhook to **`https://<that-domain>/api/whatsapp/webhook`**.
 7. **Seed once** from a Railway shell: `npm run prisma:seed`.

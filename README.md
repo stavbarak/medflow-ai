@@ -100,6 +100,10 @@ The repo includes a **[`Dockerfile`](Dockerfile)** (Node 20 + Prisma generate + 
 | `OPENAI_API_KEY` | If you use AI / WhatsApp extraction. |
 | `WHATSAPP_*` | As in [`.env.example`](.env.example) when WhatsApp is live. |
 
+**If the deploy crashes immediately** with `Configuration key "JWT_SECRET" does not exist`: open the **API** service → **Variables** → add **`JWT_SECRET`** (any long random string, e.g. 32+ characters). Redeploy. The same happens locally if `.env` is missing that key.
+
+Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma migrate deploy`** — link or paste the variable from your Railway Postgres service into the API service.
+
 **`PORT`** is set automatically by Railway — the app already reads `process.env.PORT`.
 
 #### 4. Public URL & Meta webhook
