@@ -4,6 +4,7 @@ These notes are for **first-time readers**: what we built, what was tricky, and 
 
 | Topic | File |
 |-------|------|
+| Nest in plain language + every backend module | [NestJS — technology & modules](nestjs-technology-and-modules.md) |
 | Foundation — API, auth, first data model | [Stage 1 — Nest, auth, appointments](stage-1-nest-auth-and-appointments.md) |
 | Checklists & “what’s next?” | [Stage 2 — notes, requirements, upcoming](stage-2-notes-requirements-and-upcoming.md) |
 | AI on stored data only | [Stage 3 — AI extraction & grounded Q&A](stage-3-ai-extraction-and-queries.md) |
@@ -13,6 +14,6 @@ These notes are for **first-time readers**: what we built, what was tricky, and 
 | Meta’s console (outside the repo) | [Setting up the Meta / WhatsApp app](meta-whatsapp-developer-setup.md) |
 | Shipping to the internet | [Deployment — Railway, Dockerfile, SPA](deployment-railway-and-spa.md) |
 
-**Suggested reading order:** stages 1 → 2 → 3 → 4, then Docker, then Meta (if you use WhatsApp), then Deployment. The SPA note can sit after Stage 1 or whenever you open the `web/` folder.
+**Suggested reading order:** skim [NestJS — technology & modules](nestjs-technology-and-modules.md) if you want architecture first; then stages 1 → 2 → 3 → 4, then Docker, then Meta (if you use WhatsApp), then Deployment. The SPA note can sit after Stage 1 or whenever you open the `web/` folder.
 
 The **application code** lives in the repo; these files are **story + context** so onboarding stays human.
