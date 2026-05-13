@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  phoneNumber  String   @unique
+  passwordHash String
+  role         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  responsibleFor Appointment[]     @relation("AppointmentResponsible")
+  documents      MedicalDocument[]
+}
+
+model Appointment {
+  id                String   @id @default(uuid())
+  title             String
+  dateTime          DateTime
+  location          String
+  notes             String   @default("")
+  responsibleUserId String?
+  responsibleUser   User?    @relation("AppointmentResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  requirements      Requirement[]
+  documents         MedicalDocument[]
+
+  @@index([dateTime])
+}
+
+model Requirement {
+  id            String      @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  description   String
+  isDone        Boolean     @default(false)
+}
+
+model MedicalDocument {
+  id               String       @id @default(uuid())
+  appointmentId    String?
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  fileUrl          String
+  notes            String       @default("")
+  uploadedByUserId String
+  uploadedBy       User         @relation(fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime     @default(now())
+}
