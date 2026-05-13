@@ -12,7 +12,7 @@ export function setToken(token: string | null): void {
   }
 }
 
-/** Dev: empty → same-origin + Vite proxy. Prod: set `VITE_API_BASE_URL` to API origin (e.g. `https://medflow-api.up.railway.app`). */
+/** Dev: empty → same-origin + Vite proxy. Prod: empty when UI is served from the same host as `/api` (Docker/Railway); set `VITE_API_BASE_URL` only if the API lives on another origin. */
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
   /\/$/,
   '',

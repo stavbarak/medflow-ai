@@ -15,6 +15,10 @@ RUN npm ci \
   && npx prisma generate \
   && npm run build
 
+COPY web ./web/
+RUN cd web && npm ci && npm run build \
+  && mkdir -p ../client && cp -r dist/. ../client/
+
 ENV NODE_ENV=production
 
 EXPOSE 3000

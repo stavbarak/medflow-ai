@@ -12,8 +12,11 @@ We build a **single container image** that:
 2. Installs **`openssl`** and CA certs—Prisma and HTTPS clients expect a normal trust store.
 3. Copies **`package.json` / lockfile**, **`prisma/`**, **`src/`**, and Nest config files—**not** the whole monorepo junk drawer (see `.dockerignore`).
 4. Runs **`npm ci` → `prisma generate` → `nest build`** at image build time so the running container already contains **`dist/`**.
-5. Starts with: **`prisma migrate deploy`** then **`node dist/src/main.js`** (Nest emits `src/` under `dist/` with the current `tsconfig`).  
+5. Copies **`web/`**, runs **`npm ci` + `vite build`** there, and copies the result to **`/app/client/`** so Nest can serve the SPA from **`/`** while **`/api/...`** stays the API (`@nestjs/serve-static`, `exclude: ['/api/{*any}']`, default SPA fallback).
+6. Starts with: **`prisma migrate deploy`** then **`node dist/src/main.js`** (Nest emits `src/` under `dist/` with the current `tsconfig`).  
    That means every deploy applies pending migrations **before** accepting traffic—simple and explicit.
+
+With that layout, your **Railway public URL** is one place for both UI and API: open **`/`** for the React app; **`fetch('/api/...')`** works with **no** `VITE_API_BASE_URL` because the browser origin matches the API.
 
 ### `.dockerignore`
 
@@ -27,7 +30,7 @@ Tells **Railway** to use the **Dockerfile** builder rather than guessing wrong w
 
 Browsers block cross-origin calls unless the API allows them. We added **`CORS_ORIGINS`** (comma-separated) so your **hosted** Vite/React site can call the Railway API while **localhost** dev URLs remain allowed by default.
 
-The **`web/`** app gained optional **`VITE_API_BASE_URL`**: in dev, empty string keeps **relative `/api`** + Vite proxy; in prod build, you set it to your **Railway public URL** so `fetch` hits the right host.
+The **`web/`** app has optional **`VITE_API_BASE_URL`**: in dev, empty string keeps **relative `/api`** + Vite proxy. In the **Docker** image, leave it unset so the built UI calls **same-origin `/api`**. Use **`VITE_API_BASE_URL`** only when the static UI is hosted on a **different** origin than the API (then set **`CORS_ORIGINS`** on Railway for that UI origin).
 
 ## Why Railway (for this API) vs “just use Vercel”
 
@@ -62,11 +65,11 @@ Railway’s UI sometimes labels the stack as **Node** even when the **Dockerfile
 6. Point Meta’s webhook to **`https://<that-domain>/api/whatsapp/webhook`**.
 7. **Seed once** from a Railway shell: `npm run prisma:seed`.
 
-## SPA hosting (separate concern)
+## SPA hosting
 
-The **`web/`** folder is a **static Vite build**. You can host **`web/dist`** on **Vercel**, **Netlify**, **Cloudflare Pages**, or anywhere static files live—then set **`VITE_API_BASE_URL`** at build time and **`CORS_ORIGINS`** on Railway to that site’s origin.
+**Default (this repo’s Docker image):** the UI is built in the image and served from **`/`** by Nest; no separate static host is required.
 
-That’s two small hosts doing what each is good at: **API + DB** on Railway, **UI** on a static CDN.
+**Optional split:** host **`web/dist`** on **Vercel**, **Netlify**, **Cloudflare Pages**, etc.—then set **`VITE_API_BASE_URL`** at build time and **`CORS_ORIGINS`** on Railway to that site’s origin.
 
 ## Challenges worth naming
 
