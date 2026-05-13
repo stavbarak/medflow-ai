@@ -2,6 +2,8 @@
 
 Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
 
+**New here?** Friendly write-ups live in **[`summaries/`](summaries/README.md)** (stages, Docker, Meta, deployment).
+
 ### Dates and time (Stage 2)
 
 - **`dateTime` is stored in UTC** in PostgreSQL. Send ISO 8601 strings from clients (e.g. `2026-06-01T10:00:00.000Z`).
