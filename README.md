@@ -115,9 +115,15 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 
 - **Phone format:** use digits with country code, e.g. `972523211743` (with or without `+`; the API normalizes on login/register).
 - **Forgot password:** login → **שכחתי סיסמה** → phone → **6-digit code** via **WhatsApp** (`WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`).
-  - **Plain text** only works if you messaged the business number in the **last 24 hours** (e.g. send `חנטריש` first).
-  - For codes anytime, add an approved **OTP template** in Meta and set `WHATSAPP_OTP_TEMPLATE_NAME` (+ optional `WHATSAPP_OTP_TEMPLATE_LANG=he`) on Railway.
+  - **Plain text** only works if you messaged the business number in the **last 24 hours** (rolling window from your last inbound message — not “once ever”).
+  - For codes **anytime** (no 24h wait), add an approved **OTP template** in Meta and set `WHATSAPP_OTP_TEMPLATE_NAME` (+ optional `WHATSAPP_OTP_TEMPLATE_LANG=he`) on Railway.
   - If send fails, the app shows a Hebrew error (no silent success).
+- **WhatsApp bot (חנטריש):** only replies when the message includes `חנטריש`. Examples:
+  - `חנטריש` — list upcoming appointments from the DB
+  - `חנטריש, לאבא יש תור ב-27.5 ב…` — create (location defaults to `ייקבע` if omitted)
+  - `חנטריש תבטל את התור ב-27.5` — delete all appointments on that calendar day
+  - `חנטריש מתי התור הבא?` — grounded Q&A
+- **Clear fake data / start fresh:** locally `npm run prisma:reset` (wipes DB, re-runs migrations, empty seed). On Railway: Postgres query or shell with the same command against `DATABASE_URL`.
 - **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
 
 ```sql

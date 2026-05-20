@@ -90,6 +90,20 @@ export class AppointmentsService {
     return rows[0] ?? null;
   }
 
+  /** Appointments whose `dateTime` falls on the same UTC calendar day as `day`. */
+  findOnCalendarDay(day: Date) {
+    const start = new Date(
+      Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()),
+    );
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    return this.prisma.appointment.findMany({
+      where: { dateTime: { gte: start, lt: end } },
+      orderBy: { dateTime: 'asc' },
+      include: appointmentInclude,
+    });
+  }
+
   private async ensureExists(id: string) {
     const n = await this.prisma.appointment.count({ where: { id } });
     if (!n) {

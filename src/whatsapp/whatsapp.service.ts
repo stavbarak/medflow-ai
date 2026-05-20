@@ -8,16 +8,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
-import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
-import { normalizeIsraeliPhone } from '../common/utils/phone';
+import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
-  BOT_WAKE_WORD,
-  looksLikeQuestion,
-} from '../common/utils/question-heuristic';
+  classifyWakePayload,
+  stripWakeWord,
+} from './whatsapp-wake-intent';
 
 interface MetaTextMessage {
   from?: string;
@@ -31,7 +30,6 @@ export class WhatsappService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService,
     private readonly ai: AiService,
     private readonly appointments: AppointmentsService,
     private readonly requirements: RequirementsService,
@@ -119,100 +117,102 @@ export class WhatsappService {
       return;
     }
 
-    // Wake word: grounded dump / Q&A — no login required (shared family calendar).
-    if (text.includes(BOT_WAKE_WORD)) {
-      await this.replyWakeWord(message.from, text);
+    // Group-safe: only respond when the bot is called by name.
+    if (!text.includes(BOT_WAKE_WORD)) {
       return;
     }
 
-    const normalized = normalizeIsraeliPhone(message.from);
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ phoneNumber: normalized }, { phoneNumber: message.from }],
-      },
-    });
-    if (!user) {
-      await this.safeSend(
-        message.from,
-        'מספר זה לא רשום במערכת. יש להירשם דרך האפליקציה.',
-      );
-      return;
-    }
-
-    if (looksLikeQuestion(text)) {
-      try {
-        const answer = await this.query.answerQuestion(text);
-        await this.safeSend(message.from, answer);
-      } catch (err) {
-        this.logger.error(err instanceof Error ? err.message : err);
-        await this.safeSend(
-          message.from,
-          'לא הצלחתי לענות כרגע. נסו שוב מאוחר יותר.',
-        );
-      }
-      return;
-    }
-
-    try {
-      const extracted = await this.ai.extractAppointmentFromText(text);
-      if (!extracted.dateTime || !extracted.location) {
-        await this.safeSend(
-          message.from,
-          'לא הצלחתי לזהות תאריך או מיקום. נסו לנסח שוב.',
-        );
-        return;
-      }
-
-      const title = extracted.title?.trim() || 'תור';
-      const created = await this.appointments.create({
-        title,
-        dateTime: extracted.dateTime,
-        location: extracted.location,
-        notes: extracted.notes ?? '',
-        responsibleUserId: user.id,
-      });
-
-      if (extracted.requirements?.length) {
-        for (const r of extracted.requirements) {
-          await this.requirements.create(created.id, {
-            description: r.description,
-          });
-        }
-      }
-
-      const when = new Date(created.dateTime).toLocaleString('he-IL', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      });
-      await this.safeSend(
-        message.from,
-        `הוספתי תור ל-${when} ב${created.location}.`,
-      );
-    } catch (err) {
-      this.logger.error(err instanceof Error ? err.message : err);
-      await this.safeSend(
-        message.from,
-        'לא הצלחתי לעבד את ההודעה. נסו שוב או פתחו תור דרך האפליקציה.',
-      );
-    }
+    await this.replyWakeWord(message.from, text);
   }
 
   private async replyWakeWord(from: string, text: string) {
+    const payload = stripWakeWord(text);
+    const intent = classifyWakePayload(payload);
+
     try {
-      const reply = await this.query.answerWakeWord(text);
-      await this.safeSend(from, reply);
+      switch (intent) {
+        case 'list':
+          await this.safeSend(
+            from,
+            this.query.formatFactsDumpHebrew(
+              await this.query.buildFactsPayload(),
+            ),
+          );
+          return;
+        case 'question':
+          await this.safeSend(from, await this.query.answerWakeWord(text));
+          return;
+        case 'cancel':
+          await this.safeSend(from, await this.handleWakeCancel(payload));
+          return;
+        case 'create':
+          await this.safeSend(from, await this.handleWakeCreate(payload));
+          return;
+      }
     } catch (err) {
       this.logger.error(err instanceof Error ? err.message : err);
-      try {
-        const facts = await this.query.buildFactsPayload();
-        await this.safeSend(from, this.query.formatFactsDumpHebrew(facts));
-      } catch (fallbackErr) {
-        this.logger.error(
-          fallbackErr instanceof Error ? fallbackErr.message : fallbackErr,
-        );
-        await this.safeSend(from, 'לא הצלחתי לענות כרגע. נסו שוב מאוחר יותר.');
+      await this.safeSend(from, 'לא הצלחתי לעבד את ההודעה. נסו לנסח שוב.');
+    }
+  }
+
+  private async handleWakeCreate(payload: string): Promise<string> {
+    const extracted = await this.ai.extractAppointmentFromText(payload);
+    if (!extracted.dateTime) {
+      return 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
+    }
+
+    const title = extracted.title?.trim() || 'תור';
+    const location = extracted.location?.trim() || 'ייקבע';
+    const created = await this.appointments.create({
+      title,
+      dateTime: extracted.dateTime,
+      location,
+      notes: extracted.notes ?? '',
+    });
+
+    if (extracted.requirements?.length) {
+      for (const r of extracted.requirements) {
+        await this.requirements.create(created.id, {
+          description: r.description,
+        });
       }
     }
+
+    const when = new Date(created.dateTime).toLocaleString('he-IL', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    return `הוספתי תור: ${created.title} — ${when}, ${created.location}.`;
+  }
+
+  private async handleWakeCancel(payload: string): Promise<string> {
+    const extracted = await this.ai.extractAppointmentFromText(payload);
+    if (!extracted.dateTime) {
+      return 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור ב-27.5';
+    }
+
+    const day = new Date(extracted.dateTime);
+    const rows = await this.appointments.findOnCalendarDay(day);
+    if (rows.length === 0) {
+      const when = day.toLocaleDateString('he-IL', {
+        dateStyle: 'short',
+      });
+      return `לא מצאתי תור בתאריך ${when}.`;
+    }
+
+    for (const row of rows) {
+      await this.appointments.remove(row.id);
+    }
+
+    const lines = rows.map((r) => {
+      const when = new Date(r.dateTime).toLocaleString('he-IL', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      return `• ${r.title} (${when})`;
+    });
+
+    return `ביטלתי ${rows.length} תור/ים:\n${lines.join('\n')}`;
   }
 
   private async safeSend(to: string, message: string) {

@@ -21,6 +21,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts",
+    "prisma:reset": "prisma migrate reset --force",
     "web:dev": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web"
   },
