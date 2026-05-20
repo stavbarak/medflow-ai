@@ -45,4 +45,53 @@ export class QueryService {
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson);
   }
+
+  /** Hebrew summary of upcoming appointments + requirements (no LLM). */
+  formatFactsDumpHebrew(
+    facts: Awaited<ReturnType<QueryService['buildFactsPayload']>>,
+  ): string {
+    const { upcomingAppointments } = facts;
+    if (upcomingAppointments.length === 0) {
+      return 'אין תורים קרובים במערכת כרגע.';
+    }
+    const lines = ['📋 תורים ומשימות קרובים:', ''];
+    for (const a of upcomingAppointments) {
+      const when = new Date(a.dateTime).toLocaleString('he-IL', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      lines.push(`• ${a.title} — ${when}`);
+      lines.push(`  📍 ${a.location}`);
+      if (a.notes) {
+        lines.push(`  📝 ${a.notes}`);
+      }
+      if (a.responsible?.name) {
+        lines.push(`  👤 אחראי: ${a.responsible.name}`);
+      }
+      const openReqs = a.requirements.filter((r) => !r.isDone);
+      if (openReqs.length) {
+        lines.push('  משימות:');
+        for (const r of openReqs) {
+          lines.push(`    ○ ${r.description}`);
+        }
+      }
+      lines.push('');
+    }
+    return lines.join('\n').trim();
+  }
+
+  /**
+   * Wake word (חנטריש): full DB dump when called alone; grounded Q&A when a question follows.
+   */
+  async answerWakeWord(userText: string): Promise<string> {
+    const question = userText
+      .replace(new RegExp('חנטריש', 'g'), '')
+      .trim();
+    const facts = await this.buildFactsPayload();
+    if (!question) {
+      return this.formatFactsDumpHebrew(facts);
+    }
+    const factsJson = JSON.stringify(facts, null, 0);
+    return this.ai.answerQuestionFromFacts(question, factsJson);
+  }
 }
