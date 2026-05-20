@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
-  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 import * as crypto from 'crypto';
+import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { AppointmentsService } from '../appointments/appointments.service';
@@ -17,21 +20,21 @@ import {
   looksLikeQuestion,
 } from '../common/utils/question-heuristic';
 
+const MEDFLOW_BOT_SYSTEM = `אתה MedFlowBot.
+אתה עוזר למשפחה לנהל תורים רפואיים.
+תהיה קצר, חם וידידותי.`;
+
 interface MetaTextMessage {
   from?: string;
   type?: string;
   text?: { body?: string };
 }
 
-const BOT_WAKE_FALLBACK_REPLY =
-  'אני כאן 🙂 השלב הבא: אחזיר בדיקות ומשימות לחודשיים הקרובים.';
-
-const BOT_WAKE_DEFAULT_QUESTION =
-  'מה הבדיקות והמשימות לחודשיים הקרובים?';
-
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
+  private readonly openai: OpenAI | null;
+  private readonly model: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -40,7 +43,17 @@ export class WhatsappService {
     private readonly appointments: AppointmentsService,
     private readonly requirements: RequirementsService,
     private readonly query: QueryService,
-  ) {}
+  ) {
+    const key = this.config.get<string>('OPENAI_API_KEY');
+    const baseURL = this.config.get<string>('OPENAI_BASE_URL');
+    this.model = this.config.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';
+    this.openai = key
+      ? new OpenAI({
+          apiKey: key,
+          baseURL: baseURL || undefined,
+        })
+      : null;
+  }
 
   verifyWebhook(
     mode: string | undefined,
@@ -82,50 +95,12 @@ export class WhatsappService {
   ): Promise<{ status: string }> {
     this.verifySignature(rawBody, signature);
     const messages = this.extractInboundMessages(body);
-    if (messages.length === 0) {
-      this.logger.log(
-        'Webhook POST received with no inbound text messages (often status/delivery only)',
-      );
-      return { status: 'ok' };
-    }
     for (const m of messages) {
-      this.logger.log(
-        `Inbound WhatsApp text from ${m.from}: ${m.text.slice(0, 80)}${m.text.length > 80 ? '…' : ''}`,
-      );
       await this.dispatchMessage(m).catch((err) => {
-        this.logger.error(
-          `dispatchMessage failed for ${m.from}`,
-          err instanceof Error ? err.stack : err,
-        );
+        this.logger.error(err instanceof Error ? err.message : err);
       });
     }
     return { status: 'ok' };
-  }
-
-  /** Same shape as Meta webhook JSON: `entry[0].changes[0].value.messages[0]`. */
-  parseFirstInboundTextMessage(body: unknown): {
-    from: string;
-    text: string;
-  } | null {
-    const root = body as {
-      entry?: Array<{
-        changes?: Array<{
-          value?: { messages?: MetaTextMessage[] };
-        }>;
-      }>;
-    };
-    const message = root.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    const from = message?.from;
-    const text = message?.text?.body;
-    if (message?.type === 'text' && from && text) {
-      return { from, text };
-    }
-    return null;
-  }
-
-  /** Send a text reply via WhatsApp Cloud API (no-op log if token/phone id missing). */
-  async sendMessage(to: string, body: string): Promise<void> {
-    await this.sendWhatsAppReply(to, body);
   }
 
   private extractInboundMessages(body: unknown): Array<{
@@ -136,14 +111,11 @@ export class WhatsappService {
     const root = body as {
       entry?: Array<{
         changes?: Array<{
-          value?: {
-            messages?: MetaTextMessage[];
-          };
+          value?: { messages?: MetaTextMessage[] };
         }>;
       }>;
     };
-    const entries = root.entry ?? [];
-    for (const e of entries) {
+    for (const e of root.entry ?? []) {
       for (const c of e.changes ?? []) {
         for (const msg of c.value?.messages ?? []) {
           if (msg.type === 'text' && msg.from && msg.text?.body) {
@@ -163,10 +135,7 @@ export class WhatsappService {
       },
     });
     if (!user) {
-      this.logger.warn(
-        `No User for WhatsApp from=${message.from} normalized=${normalized} — sending registration hint`,
-      );
-      await this.sendWhatsAppReply(
+      await this.sendWhatsappMessage(
         message.from,
         'מספר זה לא רשום במערכת. יש להירשם דרך האפליקציה.',
       );
@@ -180,13 +149,11 @@ export class WhatsappService {
 
     if (text.includes(BOT_WAKE_WORD)) {
       try {
-        const question =
-          text.replace(new RegExp(BOT_WAKE_WORD, 'g'), '').trim() ||
-          BOT_WAKE_DEFAULT_QUESTION;
-        const answer = await this.query.answerQuestion(question);
-        await this.sendMessage(message.from, answer);
-      } catch {
-        await this.sendMessage(message.from, BOT_WAKE_FALLBACK_REPLY);
+        const reply = await this.chatReply(text);
+        await this.sendWhatsappMessage(message.from, reply);
+      } catch (err) {
+        this.logger.error(err instanceof Error ? err.message : err);
+        await this.sendWhatsappMessage(message.from, 'לא הצלחתי לענות');
       }
       return;
     }
@@ -194,9 +161,9 @@ export class WhatsappService {
     if (looksLikeQuestion(text)) {
       try {
         const answer = await this.query.answerQuestion(text);
-        await this.sendMessage(message.from, answer);
+        await this.sendWhatsappMessage(message.from, answer);
       } catch {
-        await this.sendWhatsAppReply(
+        await this.sendWhatsappMessage(
           message.from,
           'לא הצלחתי לענות כרגע. נסו שוב מאוחר יותר.',
         );
@@ -207,7 +174,7 @@ export class WhatsappService {
     try {
       const extracted = await this.ai.extractAppointmentFromText(text);
       if (!extracted.dateTime || !extracted.location) {
-        await this.sendWhatsAppReply(
+        await this.sendWhatsappMessage(
           message.from,
           'לא הצלחתי לזהות תאריך או מיקום. נסו לנסח שוב.',
         );
@@ -235,44 +202,65 @@ export class WhatsappService {
         dateStyle: 'short',
         timeStyle: 'short',
       });
-      await this.sendWhatsAppReply(
+      await this.sendWhatsappMessage(
         message.from,
         `הוספתי תור ל-${when} ב${created.location}.`,
       );
     } catch {
-      await this.sendWhatsAppReply(
+      await this.sendWhatsappMessage(
         message.from,
         'לא הצלחתי לעבד את ההודעה. נסו שוב או פתחו תור דרך האפליקציה.',
       );
     }
   }
 
-  private async sendWhatsAppReply(toRaw: string, body: string) {
+  private async chatReply(userText: string): Promise<string> {
+    if (!this.openai) {
+      throw new ServiceUnavailableException('חסר OPENAI_API_KEY');
+    }
+    const completion = await this.openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: MEDFLOW_BOT_SYSTEM },
+        { role: 'user', content: userText },
+      ],
+    });
+    return (
+      completion.choices[0]?.message?.content?.trim() ?? 'לא הצלחתי לענות'
+    );
+  }
+
+  async sendWhatsappMessage(to: string, message: string): Promise<void> {
     const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
     const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
     if (!token || !phoneNumberId) {
-      this.logger.log(`[WhatsApp לא מוגדר] ל-${toRaw}: ${body}`);
+      this.logger.log(`[WhatsApp לא מוגדר] ל-${to}: ${message}`);
       return;
     }
-    const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: toRaw.replace(/\D/g, ''),
-        type: 'text',
-        text: { preview_url: false, body },
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      this.logger.error(`WhatsApp send failed: ${res.status} ${errText}`);
+
+    try {
+      await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: to.replace(/\D/g, ''),
+          type: 'text',
+          text: { body: message },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        this.logger.error(
+          `WhatsApp send failed: ${err.response?.status} ${JSON.stringify(err.response?.data)}`,
+        );
+      }
       throw new BadRequestException('שליחת הודעת וואטסאפ נכשלה');
     }
-    this.logger.log(`WhatsApp reply sent to ${toRaw.replace(/\D/g, '')}`);
   }
 }
