@@ -10,7 +10,7 @@ You want three gifts from Meta:
 2. A **Phone Number ID** and an **access token** that your server can use to **send** messages.
 3. A **public HTTPS webhook URL** Meta can **POST** to when someone messages you.
 
-MedFlowAI already exposes **`/api/whatsapp/webhook`** for steps (2) and (3). Step (1) is the paperwork.
+MedFlowAI already exposes **`/api/whatsapp`** (GET for verify, POST for events) for steps (2) and (3). Step (1) is the paperwork.
 
 ## A sane order of operations
 
@@ -49,7 +49,7 @@ MedFlowAI already exposes **`/api/whatsapp/webhook`** for steps (2) and (3). Ste
 
 ## How this ties back to MedFlowAI
 
-Once Meta can reach your **`https://.../api/whatsapp/webhook`**, and your DB has users whose **`phoneNumber`** matches WhatsApp senders, the bot path in the codebase does the rest: questions → grounded answers; other messages → extraction → new appointments.
+Once Meta can reach your **`https://.../api/whatsapp`**, and your DB has users whose **`phoneNumber`** matches WhatsApp senders, the bot path in the codebase does the rest: questions → grounded answers; other messages → extraction → new appointments.
 
 You’re not doing anything wrong if **Meta takes longer than coding**—that’s normal for this stack.
 

@@ -62,7 +62,7 @@ Could you force this onto Vercel with enough adapters? Maybe. Would it be simple
 
 Railway’s UI sometimes labels the stack as **Node** even when the **Dockerfile** builds the image; what matters is that the service actually builds from the repo **`Dockerfile`** (see [`railway.toml`](railway.toml)). If you ever see an unexpected Node version, open **Settings → Build** and confirm **Dockerfile** is selected.
 5. **Generate a public domain** for the service.
-6. Point Meta’s webhook to **`https://<that-domain>/api/whatsapp/webhook`**.
+6. Point Meta’s webhook to **`https://<that-domain>/api/whatsapp`** (same URL for GET verify and POST events).
 7. **Seed once** from a Railway shell: `npm run prisma:seed`.
 
 ## SPA hosting

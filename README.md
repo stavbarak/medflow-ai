@@ -35,7 +35,7 @@ The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same**
 
 | Behavior | Details |
 |----------|---------|
-| **Webhook** | `GET /api/whatsapp/webhook` — Meta verification (`hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**). `POST /api/whatsapp/webhook` — inbound messages (expects Meta **WhatsApp Cloud API** JSON). |
+| **Webhook** | `GET /api/whatsapp` — Meta verification (`hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**). `POST /api/whatsapp` — inbound messages (expects Meta **WhatsApp Cloud API** JSON). |
 | **Signature** | If **`WHATSAPP_APP_SECRET`** is set, `X-Hub-Signature-256` is verified (requires Nest `rawBody`, already enabled). If unset, signature check is skipped (dev only). |
 | **Who can write** | The sender’s number must match a **`User.phoneNumber`** in the DB (international digits, e.g. `972501234567` like the seed). Otherwise a short Hebrew “not registered” reply is sent (or logged). |
 | **Routing** | Messages that look like **questions** (e.g. end with `?`, or Hebrew question-style) → grounded **`QueryService`**. Other text → **AI extraction** → new **appointment** (+ optional **requirements**). |
@@ -43,7 +43,7 @@ The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same**
 
 **AI:** Set **`OPENAI_API_KEY`** for extraction and Q&A over WhatsApp.
 
-**Expose your local API to Meta:** Meta needs a **public HTTPS** URL. Use a tunnel (e.g. [ngrok](https://ngrok.com/)) pointing at `http://localhost:3000`, then in the Meta Developer app set **Callback URL** to `https://<your-tunnel>/api/whatsapp/webhook` and the same **Verify token** as `WHATSAPP_VERIFY_TOKEN`.
+**Expose your local API to Meta:** Meta needs a **public HTTPS** URL. Use a tunnel (e.g. [ngrok](https://ngrok.com/)) pointing at `http://localhost:3000`, then in the Meta Developer app set **Callback URL** to `https://<your-tunnel>/api/whatsapp` and the same **Verify token** as `WHATSAPP_VERIFY_TOKEN`.
 
 ### Minimal SPA (`web/`)
 
@@ -109,7 +109,7 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 #### 4. Public URL & Meta webhook
 
 1. API service → **Settings** → **Networking** → **Generate domain** (e.g. `https://medflow-api-production.up.railway.app`).
-2. WhatsApp webhook callback: `https://<your-railway-domain>/api/whatsapp/webhook`.
+2. WhatsApp webhook callback: `https://<your-railway-domain>/api/whatsapp`.
 
 #### 5. Seed (one-off)
 

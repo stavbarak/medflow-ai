@@ -116,7 +116,7 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **Role:** **Meta WhatsApp Cloud API** integration — **webhook verification**, **incoming messages**, and orchestration (appointments, requirements, optional AI/query).
 
-**How:** **`WhatsappController`** is **not** behind JWT (Meta calls it). `GET /api/whatsapp/webhook` returns the **hub challenge** when the verify token matches. `POST /api/whatsapp/webhook` receives payloads; the app is bootstrapped with **`rawBody: true`** so **`WhatsappService`** can verify **`X-Hub-Signature-256`** against the raw bytes. The service links external sender identity to your users, updates data through **`AppointmentsService`** / **`RequirementsService`**, and can call **`AiService`** / **`QueryService`** for richer flows. **`WhatsappModule`** **imports** those modules instead of reaching into Prisma for everything—**clear boundaries**, easier to test and to read.
+**How:** **`WhatsappController`** is **not** behind JWT (Meta calls it). `GET /api/whatsapp` returns the **hub challenge** when the verify token matches. `POST /api/whatsapp` receives payloads on the **same path**; the app is bootstrapped with **`rawBody: true`** so **`WhatsappService`** can verify **`X-Hub-Signature-256`** against the raw bytes. The service links external sender identity to your users, updates data through **`AppointmentsService`** / **`RequirementsService`**, and can call **`AiService`** / **`QueryService`** for richer flows. **`WhatsappModule`** **imports** those modules instead of reaching into Prisma for everything—**clear boundaries**, easier to test and to read.
 
 ---
 

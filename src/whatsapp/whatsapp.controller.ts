@@ -40,7 +40,7 @@ export class WhatsappController {
     return res.status(403).send('Forbidden');
   }
 
-  @Post('webhook')
+  @Post()
   async webhook(
     @Req() req: RequestWithRawBody,
     @Headers('x-hub-signature-256') signature: string | undefined,

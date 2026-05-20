@@ -5,8 +5,8 @@ WhatsApp isn’t a separate product—it’s **the same brain** as the REST API,
 ## What we built
 
 - **`WhatsappModule`** with:
-  - **`GET /api/whatsapp/webhook`** — Meta’s verification handshake; compare `hub.verify_token` to **`WHATSAPP_VERIFY_TOKEN`** (a string *you* choose and paste in both places).
-  - **`POST /api/whatsapp/webhook`** — inbound Cloud API payloads; optional **HMAC verification** of `X-Hub-Signature-256` when **`WHATSAPP_APP_SECRET`** is set. Nest runs with **`rawBody: true`** so signature verification is actually possible (body must be raw bytes, not a re-serialized object).
+  - **`GET /api/whatsapp`** — Meta’s verification handshake; compare `hub.verify_token` to **`WHATSAPP_VERIFY_TOKEN`** (a string *you* choose and paste in both places).
+  - **`POST /api/whatsapp`** — inbound Cloud API payloads; optional **HMAC verification** of `X-Hub-Signature-256` when **`WHATSAPP_APP_SECRET`** is set. Nest runs with **`rawBody: true`** so signature verification is actually possible (body must be raw bytes, not a re-serialized object).
 - **User matching**: normalize Israeli-style numbers and look up **`User.phoneNumber`**. Unknown senders get a gentle Hebrew “register first” style message—or only a log line if outbound isn’t configured.
 - **Intent routing** (lightweight heuristic): looks like a **question** → **`QueryService`**; otherwise → **extraction** → create **appointment** (+ requirements when extracted). Always **create** for MVP simplicity—not merge with an existing visit.
 - **Outbound**: if **`WHATSAPP_ACCESS_TOKEN`** and **`WHATSAPP_PHONE_NUMBER_ID`** exist, call Graph API `v21.0`; if not, **log** the reply text so local development still proves the pipeline without Meta credentials.
