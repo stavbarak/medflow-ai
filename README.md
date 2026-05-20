@@ -114,7 +114,10 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 #### 5. Login, forgot password, and removing a user
 
 - **Phone format:** use digits with country code, e.g. `972523211743` (with or without `+`; the API normalizes on login/register).
-- **Forgot password:** on the login screen → **שכחתי סיסמה** → enter phone → a **6-digit code** is sent to that number via **WhatsApp** (requires `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`). Then enter the code and a new password.
+- **Forgot password:** login → **שכחתי סיסמה** → phone → **6-digit code** via **WhatsApp** (`WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`).
+  - **Plain text** only works if you messaged the business number in the **last 24 hours** (e.g. send `חנטריש` first).
+  - For codes anytime, add an approved **OTP template** in Meta and set `WHATSAPP_OTP_TEMPLATE_NAME` (+ optional `WHATSAPP_OTP_TEMPLATE_LANG=he`) on Railway.
+  - If send fails, the app shows a Hebrew error (no silent success).
 - **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
 
 ```sql

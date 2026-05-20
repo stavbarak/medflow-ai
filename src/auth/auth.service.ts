@@ -21,8 +21,14 @@ const BCRYPT_ROUNDS = 10;
 const RESET_CODE_TTL_MS = 15 * 60 * 1000;
 const FORGOT_COOLDOWN_MS = 60 * 1000;
 
-const FORGOT_PASSWORD_ACK =
+const FORGOT_PASSWORD_ACK_UNKNOWN =
   'אם המספר רשום במערכת, נשלח אליך ב-WhatsApp קוד לאיפוס סיסמה (בתוקף 15 דקות).';
+
+const FORGOT_PASSWORD_SENT =
+  'נשלח קוד לאיפוס סיסמה ב-WhatsApp (בתוקף 15 דקות).';
+
+const FORGOT_PASSWORD_COOLDOWN =
+  'בקשת קוד כבר נשלחה. נסה שוב בעוד דקה.';
 
 @Injectable()
 export class AuthService {
@@ -72,13 +78,12 @@ export class AuthService {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const last = this.forgotCooldown.get(phoneNumber);
     if (last && Date.now() - last < FORGOT_COOLDOWN_MS) {
-      return { message: FORGOT_PASSWORD_ACK };
+      return { message: FORGOT_PASSWORD_COOLDOWN };
     }
-    this.forgotCooldown.set(phoneNumber, Date.now());
 
     const user = await this.findUserByPhone(dto.phoneNumber);
     if (!user) {
-      return { message: FORGOT_PASSWORD_ACK };
+      return { message: FORGOT_PASSWORD_ACK_UNKNOWN };
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -92,17 +97,27 @@ export class AuthService {
       data: { userId: user.id, codeHash, expiresAt },
     });
 
-    const text = `קוד איפוס MedFlow: ${code}\nבתוקף 15 דקות. אל תשתף את הקוד.`;
+    this.forgotCooldown.set(phoneNumber, Date.now());
+
     try {
-      await this.whatsapp.sendWhatsappMessage(phoneNumber, text);
+      await this.whatsapp.sendPasswordResetCode(phoneNumber, code);
     } catch (err) {
+      await this.prisma.passwordResetToken.deleteMany({
+        where: { userId: user.id },
+      });
       this.logger.error(
-        `Failed to send password reset WhatsApp to ${phoneNumber}`,
+        `Password reset WhatsApp failed for ${phoneNumber}; code was ${code}`,
         err instanceof Error ? err.stack : err,
+      );
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+      throw new BadRequestException(
+        'לא הצלחנו לשלוח קוד ב-WhatsApp. שלח הודעה למספר העסקי (למשל "חנטריש") ונסה שוב, או בדוק את הגדרות WhatsApp בשרת.',
       );
     }
 
-    return { message: FORGOT_PASSWORD_ACK };
+    return { message: FORGOT_PASSWORD_SENT };
   }
 
   async resetPassword(dto: ResetPasswordDto) {

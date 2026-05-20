@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -224,32 +225,54 @@ export class WhatsappService {
     }
   }
 
-  async sendWhatsappMessage(to: string, message: string): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneNumberId) {
-      this.logger.warn(
-        `[WhatsApp לא מוגדר] לא נשלחה הודעה ל-${to} (חסר TOKEN או PHONE_NUMBER_ID)`,
-      );
+  /**
+   * Password-reset OTP. Uses an approved template when configured (works outside the 24h window).
+   * Otherwise sends plain text (only works if the user messaged your business number recently).
+   */
+  async sendPasswordResetCode(to: string, code: string): Promise<void> {
+    const templateName = this.config.get<string>('WHATSAPP_OTP_TEMPLATE_NAME');
+    const templateLang =
+      this.config.get<string>('WHATSAPP_OTP_TEMPLATE_LANG') ?? 'he';
+
+    if (templateName) {
+      await this.postWhatsAppMessage(to, {
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: templateLang },
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: code }],
+            },
+          ],
+        },
+      });
       return;
     }
 
+    const text = `קוד איפוס MedFlow: ${code}\nבתוקף 15 דקות. אל תשתף את הקוד.`;
     try {
-      await axios.post(
-        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
-        {
-          messaging_product: 'whatsapp',
-          to: to.replace(/\D/g, ''),
-          type: 'text',
-          text: { body: message },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      await this.postWhatsAppMessage(to, {
+        type: 'text',
+        text: { body: text },
+      });
+    } catch (err) {
+      if (this.isOutsideMessagingWindow(err)) {
+        throw new BadRequestException(
+          'לא ניתן לשלוח קוד ב-WhatsApp: יש לשלוח הודעה למספר העסקי של MedFlow (למשל "חנטריש") ולנסות שוב בתוך 24 שעות, או להגדיר תבנית OTP ב-Meta (WHATSAPP_OTP_TEMPLATE_NAME).',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async sendWhatsappMessage(to: string, message: string): Promise<void> {
+    try {
+      await this.postWhatsAppMessage(to, {
+        type: 'text',
+        text: { body: message },
+      });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         this.logger.error(
@@ -258,5 +281,49 @@ export class WhatsappService {
       }
       throw new BadRequestException('שליחת הודעת וואטסאפ נכשלה');
     }
+  }
+
+  private async postWhatsAppMessage(
+    to: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!token || !phoneNumberId) {
+      throw new ServiceUnavailableException(
+        'WhatsApp is not configured on the server (missing access token or phone number id)',
+      );
+    }
+
+    await axios.post(
+      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to.replace(/\D/g, ''),
+        ...payload,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  }
+
+  private isOutsideMessagingWindow(err: unknown): boolean {
+    if (!axios.isAxiosError(err)) {
+      return false;
+    }
+    const body = err.response?.data as {
+      error?: { code?: number; message?: string; error_subcode?: number };
+    };
+    const code = body?.error?.code;
+    const msg = body?.error?.message ?? '';
+    return (
+      code === 131047 ||
+      code === 131026 ||
+      /24.?hour|re-engagement|message undeliverable/i.test(msg)
+    );
   }
 }
