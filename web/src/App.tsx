@@ -25,7 +25,11 @@ function formatWhen(iso: string): string {
 
 export default function App() {
   const [token, setTokenState] = useState<string | null>(() => getToken());
-  const [tab, setTab] = useState<'login' | 'register'>('login');
+  const [tab, setTab] = useState<'login' | 'register' | 'forgot' | 'reset'>(
+    'login',
+  );
+  const [resetCode, setResetCode] = useState('');
+  const [info, setInfo] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -68,7 +72,30 @@ export default function App() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
+      if (tab === 'forgot') {
+        const res = await api<{ message: string }>('/api/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ phoneNumber: phone }),
+        });
+        setInfo(res.message);
+        setTab('reset');
+        return;
+      }
+      if (tab === 'reset') {
+        const res = await api<AuthResponse>('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            phoneNumber: phone,
+            code: resetCode,
+            newPassword: password,
+          }),
+        });
+        setToken(res.access_token);
+        setTokenState(res.access_token);
+        return;
+      }
       const path =
         tab === 'login' ? '/api/auth/login' : '/api/auth/register';
       const body =
@@ -131,14 +158,22 @@ export default function App() {
             <button
               type="button"
               className={tab === 'login' ? 'active' : ''}
-              onClick={() => setTab('login')}
+              onClick={() => {
+                setTab('login');
+                setError(null);
+                setInfo(null);
+              }}
             >
               התחברות
             </button>
             <button
               type="button"
               className={tab === 'register' ? 'active' : ''}
-              onClick={() => setTab('register')}
+              onClick={() => {
+                setTab('register');
+                setError(null);
+                setInfo(null);
+              }}
             >
               הרשמה
             </button>
@@ -166,23 +201,78 @@ export default function App() {
                 autoComplete="tel"
               />
             </label>
-            <label>
-              סיסמה
-              <input
-                type="password"
-                value={password}
-                onChange={(ev) => setPassword(ev.target.value)}
-                required
-                minLength={6}
-                autoComplete={
-                  tab === 'login' ? 'current-password' : 'new-password'
-                }
-              />
-            </label>
+            {tab === 'reset' && (
+              <label>
+                קוד מ-WhatsApp (6 ספרות)
+                <input
+                  value={resetCode}
+                  onChange={(ev) => setResetCode(ev.target.value)}
+                  placeholder="123456"
+                  required
+                  pattern="\d{6}"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                />
+              </label>
+            )}
+            {(tab === 'login' ||
+              tab === 'register' ||
+              tab === 'reset') && (
+              <label>
+                {tab === 'reset' ? 'סיסמה חדשה' : 'סיסמה'}
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(ev) => setPassword(ev.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete={
+                    tab === 'login'
+                      ? 'current-password'
+                      : 'new-password'
+                  }
+                />
+              </label>
+            )}
+            {tab === 'login' && (
+              <button
+                type="button"
+                className="ghost linkish"
+                onClick={() => {
+                  setTab('forgot');
+                  setError(null);
+                  setInfo(null);
+                }}
+              >
+                שכחתי סיסמה
+              </button>
+            )}
+            {info && <p className="muted small">{info}</p>}
             {error && <p className="err">{error}</p>}
             <button type="submit" disabled={busy} className="primary">
-              {busy ? 'ממתין…' : tab === 'login' ? 'כניסה' : 'יצירת חשבון'}
+              {busy
+                ? 'ממתין…'
+                : tab === 'login'
+                  ? 'כניסה'
+                  : tab === 'register'
+                    ? 'יצירת חשבון'
+                    : tab === 'forgot'
+                      ? 'שלח קוד ל-WhatsApp'
+                      : 'עדכן סיסמה והתחבר'}
             </button>
+            {(tab === 'forgot' || tab === 'reset') && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setTab('login');
+                  setError(null);
+                  setInfo(null);
+                }}
+              >
+                חזרה להתחברות
+              </button>
+            )}
           </form>
         </div>
       </div>

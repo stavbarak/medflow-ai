@@ -111,7 +111,26 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 1. API service → **Settings** → **Networking** → **Generate domain** (e.g. `https://medflow-api-production.up.railway.app`).
 2. WhatsApp webhook callback: `https://<your-railway-domain>/api/whatsapp`.
 
-#### 5. Seed (one-off)
+#### 5. Login, forgot password, and removing a user
+
+- **Phone format:** use digits with country code, e.g. `972523211743` (with or without `+`; the API normalizes on login/register).
+- **Forgot password:** on the login screen → **שכחתי סיסמה** → enter phone → a **6-digit code** is sent to that number via **WhatsApp** (requires `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`). Then enter the code and a new password.
+- **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
+
+```sql
+-- use the phone as stored, or try both 972… and +972…
+DELETE FROM "PasswordResetToken" WHERE "userId" IN (
+  SELECT id FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743')
+);
+DELETE FROM "MedicalDocument" WHERE "uploadedByUserId" IN (
+  SELECT id FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743')
+);
+DELETE FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743');
+```
+
+Then use **הרשמה** in the app with a new password.
+
+#### 6. Seed (one-off)
 
 After first successful deploy, open the API service → **Shell** (or use Railway CLI):
 

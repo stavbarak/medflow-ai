@@ -10,5 +10,6 @@ import { QueryModule } from '../query/query.module';
   imports: [AiModule, AppointmentsModule, RequirementsModule, QueryModule],
   controllers: [WhatsappController],
   providers: [WhatsappService],
+  exports: [WhatsappService],
 })
 export class WhatsappModule {}

@@ -126,6 +126,17 @@ textarea {
   font-weight: 600;
 }
 
+.ghost.linkish {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: #1d4ed8;
+  padding: 0;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .err {
   color: #b91c1c;
   font-size: 0.9rem;
