@@ -36,7 +36,7 @@ export class RequirementsService {
       where: { id: requirementId, appointmentId },
     });
     if (!req) {
-      throw new NotFoundException('פריט לא נמצא');
+      throw new NotFoundException('Requirement not found');
     }
     return this.prisma.requirement.update({
       where: { id: requirementId },
@@ -53,7 +53,7 @@ export class RequirementsService {
       where: { id: requirementId, appointmentId },
     });
     if (!req) {
-      throw new NotFoundException('פריט לא נמצא');
+      throw new NotFoundException('Requirement not found');
     }
     return this.prisma.requirement.delete({ where: { id: requirementId } });
   }
@@ -61,7 +61,7 @@ export class RequirementsService {
   private async ensureAppointment(id: string) {
     const n = await this.prisma.appointment.count({ where: { id } });
     if (!n) {
-      throw new NotFoundException('תור לא נמצא');
+      throw new NotFoundException('Appointment not found');
     }
   }
 }

@@ -29,7 +29,7 @@ export class UsersService {
         },
       });
       if (taken) {
-        throw new ConflictException('מספר טלפון כבר בשימוש');
+        throw new ConflictException('Phone number already in use');
       }
     }
     return this.prisma.user.update({

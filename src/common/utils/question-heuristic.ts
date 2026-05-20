@@ -1,14 +1,11 @@
 /** Bot wake word — WhatsApp replies only when the message includes this. */
 export const BOT_WAKE_WORD = 'חנטריש';
 
-/** Rough heuristic: treat as question vs new appointment info (WhatsApp). */
+/** Rough heuristic: treat as question vs new appointment info (web / other channels). */
 export function looksLikeQuestion(text: string): boolean {
   const t = text.trim();
   if (!t) {
     return false;
-  }
-  if (t.includes(BOT_WAKE_WORD)) {
-    return true;
   }
   if (t.endsWith('?')) {
     return true;

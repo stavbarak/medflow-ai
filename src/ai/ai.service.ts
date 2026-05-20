@@ -27,7 +27,7 @@ export class AiService {
   private ensureClient(): OpenAI {
     if (!this.client) {
       throw new ServiceUnavailableException(
-        'שירות בינה מלאכותית לא זמין (חסר מפתח API)',
+        'AI service unavailable (OPENAI_API_KEY not set)',
       );
     }
     return this.client;
@@ -51,13 +51,13 @@ export class AiService {
     });
     const raw = completion.choices[0]?.message?.content;
     if (!raw) {
-      throw new ServiceUnavailableException('לא התקבלה תשובה מהמודל');
+      throw new ServiceUnavailableException('No response from language model');
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw) as unknown;
     } catch {
-      throw new ServiceUnavailableException('פלט המודל אינו JSON תקין');
+      throw new ServiceUnavailableException('Model output is not valid JSON');
     }
     return validateAppointmentExtraction(parsed);
   }

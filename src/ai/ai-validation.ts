@@ -16,7 +16,7 @@ export function validateAppointmentExtraction(
     const msg = errors
       .map((e) => Object.values(e.constraints ?? {}).join(', '))
       .join('; ');
-    throw new Error(msg || 'אימות נתוני חילוץ נכשל');
+    throw new Error(msg || 'Appointment extraction validation failed');
   }
   return dto;
 }

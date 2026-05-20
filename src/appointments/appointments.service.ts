@@ -40,7 +40,7 @@ export class AppointmentsService {
       include: appointmentInclude,
     });
     if (!row) {
-      throw new NotFoundException('תור לא נמצא');
+      throw new NotFoundException('Appointment not found');
     }
     return row;
   }
@@ -93,7 +93,7 @@ export class AppointmentsService {
   private async ensureExists(id: string) {
     const n = await this.prisma.appointment.count({ where: { id } });
     if (!n) {
-      throw new NotFoundException('תור לא נמצא');
+      throw new NotFoundException('Appointment not found');
     }
   }
 }
