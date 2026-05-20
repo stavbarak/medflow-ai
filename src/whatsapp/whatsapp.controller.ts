@@ -6,8 +6,9 @@ import {
   Post,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { WhatsappService } from './whatsapp.service';
 
 type RequestWithRawBody = Request & { rawBody?: Buffer };
@@ -16,13 +17,27 @@ type RequestWithRawBody = Request & { rawBody?: Buffer };
 export class WhatsappController {
   constructor(private readonly whatsapp: WhatsappService) {}
 
-  @Get('webhook')
-  verify(
+  // @Get('webhook')
+  // verify(
+  //   @Query('hub.mode') mode: string,
+  //   @Query('hub.verify_token') token: string,
+  //   @Query('hub.challenge') challenge: string,
+  // ) {
+  //   return this.whatsapp.verifyWebhook(mode, token, challenge);
+  // }
+
+  @Get()
+  verifyWebhook(
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
   ) {
-    return this.whatsapp.verifyWebhook(mode, token, challenge);
+    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+      return res.status(200).send(challenge);
+    }
+
+    return res.status(403).send('Forbidden');
   }
 
   @Post('webhook')

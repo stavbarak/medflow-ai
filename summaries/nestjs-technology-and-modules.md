@@ -106,9 +106,9 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 ### `QueryModule`
 
-**Role:** **Grounded question answering** — answers should come from **what is already stored** (appointments, requirements, …), not from the model’s imagination.
+**Role:** **Grounded question answering** — the model should lean on **facts we serialize from the database** (upcoming appointments, requirements, responsible contacts), not invent appointments from thin air.
 
-**How:** **`QueryController`** exposes `POST /api/query/answer` with a **question** in the body. **`QueryService`** gathers a **bounded context** from the database (for the current user), sends it to the model with clear instructions, and returns a concise **`answer`**. It **imports `AiModule`** to reuse the same LLM integration path as extraction, while keeping the **Q&A policy** separate from **extraction** code.
+**How:** **`QueryController`** exposes `POST /api/query/answer` with a **question** in the body. **`QueryService`** builds a **JSON “facts” payload** (next several upcoming visits with nested requirements), then **`AiService.answerQuestionFromFacts`** prompts the model to answer **only** from that JSON. **`QueryModule`** imports **`AiModule`** so LLM wiring stays in one place. Like the rest of the calendar, the facts snapshot is **shared across logged-in users**—appropriate for a small household tool; a stricter multi-tenant product would filter every query by `userId`.
 
 ---
 
