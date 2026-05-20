@@ -52,7 +52,7 @@ export class DocumentsService {
       },
     });
     if (!doc) {
-      throw new NotFoundException('Document not found');
+      throw new NotFoundException('מסמך לא נמצא');
     }
     return doc;
   }

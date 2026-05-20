@@ -24,7 +24,7 @@ export class AuthService {
       where: { phoneNumber: dto.phoneNumber },
     });
     if (existing) {
-      throw new ConflictException('Phone number already registered');
+      throw new ConflictException('מספר טלפון כבר רשום במערכת');
     }
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
@@ -43,11 +43,11 @@ export class AuthService {
       where: { phoneNumber: dto.phoneNumber },
     });
     if (!user) {
-      throw new UnauthorizedException('Invalid login credentials');
+      throw new UnauthorizedException('פרטי התחברות שגויים');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
-      throw new UnauthorizedException('Invalid login credentials');
+      throw new UnauthorizedException('פרטי התחברות שגויים');
     }
     return this.buildAuthResponse(user.id, user.phoneNumber, user);
   }

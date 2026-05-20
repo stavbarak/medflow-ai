@@ -7,8 +7,16 @@ import {
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
+import { AppointmentsService } from '../appointments/appointments.service';
+import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
-import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
+import { normalizeIsraeliPhone } from '../common/utils/phone';
+import {
+  BOT_WAKE_WORD,
+  looksLikeQuestion,
+} from '../common/utils/question-heuristic';
 
 interface MetaTextMessage {
   from?: string;
@@ -22,6 +30,10 @@ export class WhatsappService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly ai: AiService,
+    private readonly appointments: AppointmentsService,
+    private readonly requirements: RequirementsService,
     private readonly query: QueryService,
   ) {}
 
@@ -34,19 +46,17 @@ export class WhatsappService {
     if (mode === 'subscribe' && token && verifyToken && token === verifyToken) {
       return challenge ?? '';
     }
-    throw new UnauthorizedException('Webhook verification failed');
+    throw new UnauthorizedException('אימות וובהוק נכשל');
   }
 
   verifySignature(rawBody: Buffer | undefined, signature: string | undefined) {
     const secret = this.config.get<string>('WHATSAPP_APP_SECRET');
     if (!secret) {
-      this.logger.warn(
-        'WHATSAPP_APP_SECRET not set — skipping signature verification',
-      );
+      this.logger.warn('WHATSAPP_APP_SECRET לא מוגדר — דילוג על אימות חתימה');
       return;
     }
     if (!rawBody || !signature?.startsWith('sha256=')) {
-      throw new UnauthorizedException('Missing X-Hub-Signature-256 header');
+      throw new UnauthorizedException('חתימה חסרה');
     }
     const expected = crypto
       .createHmac('sha256', secret)
@@ -56,7 +66,7 @@ export class WhatsappService {
     const a = Buffer.from(expected, 'utf8');
     const b = Buffer.from(received, 'utf8');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-      throw new UnauthorizedException('Invalid webhook signature');
+      throw new UnauthorizedException('חתימה לא תקינה');
     }
   }
 
@@ -108,12 +118,82 @@ export class WhatsappService {
       return;
     }
 
-    // Group-safe: reply only when explicitly called by name.
-    if (!text.includes(BOT_WAKE_WORD)) {
+    // Wake word: grounded dump / Q&A — no login required (shared family calendar).
+    if (text.includes(BOT_WAKE_WORD)) {
+      await this.replyWakeWord(message.from, text);
       return;
     }
 
-    await this.replyWakeWord(message.from, text);
+    const normalized = normalizeIsraeliPhone(message.from);
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ phoneNumber: normalized }, { phoneNumber: message.from }],
+      },
+    });
+    if (!user) {
+      await this.safeSend(
+        message.from,
+        'מספר זה לא רשום במערכת. יש להירשם דרך האפליקציה.',
+      );
+      return;
+    }
+
+    if (looksLikeQuestion(text)) {
+      try {
+        const answer = await this.query.answerQuestion(text);
+        await this.safeSend(message.from, answer);
+      } catch (err) {
+        this.logger.error(err instanceof Error ? err.message : err);
+        await this.safeSend(
+          message.from,
+          'לא הצלחתי לענות כרגע. נסו שוב מאוחר יותר.',
+        );
+      }
+      return;
+    }
+
+    try {
+      const extracted = await this.ai.extractAppointmentFromText(text);
+      if (!extracted.dateTime || !extracted.location) {
+        await this.safeSend(
+          message.from,
+          'לא הצלחתי לזהות תאריך או מיקום. נסו לנסח שוב.',
+        );
+        return;
+      }
+
+      const title = extracted.title?.trim() || 'תור';
+      const created = await this.appointments.create({
+        title,
+        dateTime: extracted.dateTime,
+        location: extracted.location,
+        notes: extracted.notes ?? '',
+        responsibleUserId: user.id,
+      });
+
+      if (extracted.requirements?.length) {
+        for (const r of extracted.requirements) {
+          await this.requirements.create(created.id, {
+            description: r.description,
+          });
+        }
+      }
+
+      const when = new Date(created.dateTime).toLocaleString('he-IL', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      await this.safeSend(
+        message.from,
+        `הוספתי תור ל-${when} ב${created.location}.`,
+      );
+    } catch (err) {
+      this.logger.error(err instanceof Error ? err.message : err);
+      await this.safeSend(
+        message.from,
+        'לא הצלחתי לעבד את ההודעה. נסו שוב או פתחו תור דרך האפליקציה.',
+      );
+    }
   }
 
   private async replyWakeWord(from: string, text: string) {
@@ -149,7 +229,7 @@ export class WhatsappService {
     const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
     if (!token || !phoneNumberId) {
       this.logger.warn(
-        `WhatsApp not configured: message not sent to ${to} (missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)`,
+        `[WhatsApp לא מוגדר] לא נשלחה הודעה ל-${to} (חסר TOKEN או PHONE_NUMBER_ID)`,
       );
       return;
     }
@@ -176,7 +256,7 @@ export class WhatsappService {
           `WhatsApp send failed: ${err.response?.status} ${JSON.stringify(err.response?.data)}`,
         );
       }
-      throw new BadRequestException('Failed to send WhatsApp message');
+      throw new BadRequestException('שליחת הודעת וואטסאפ נכשלה');
     }
   }
 }
