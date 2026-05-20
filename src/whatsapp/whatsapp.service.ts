@@ -12,13 +12,22 @@ import { AppointmentsService } from '../appointments/appointments.service';
 import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
-import { looksLikeQuestion } from '../common/utils/question-heuristic';
+import {
+  BOT_WAKE_WORD,
+  looksLikeQuestion,
+} from '../common/utils/question-heuristic';
 
 interface MetaTextMessage {
   from?: string;
   type?: string;
   text?: { body?: string };
 }
+
+const BOT_WAKE_FALLBACK_REPLY =
+  'אני כאן 🙂 השלב הבא: אחזיר בדיקות ומשימות לחודשיים הקרובים.';
+
+const BOT_WAKE_DEFAULT_QUESTION =
+  'מה הבדיקות והמשימות לחודשיים הקרובים?';
 
 @Injectable()
 export class WhatsappService {
@@ -81,6 +90,32 @@ export class WhatsappService {
     return { status: 'ok' };
   }
 
+  /** Same shape as Meta webhook JSON: `entry[0].changes[0].value.messages[0]`. */
+  parseFirstInboundTextMessage(body: unknown): {
+    from: string;
+    text: string;
+  } | null {
+    const root = body as {
+      entry?: Array<{
+        changes?: Array<{
+          value?: { messages?: MetaTextMessage[] };
+        }>;
+      }>;
+    };
+    const message = root.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const from = message?.from;
+    const text = message?.text?.body;
+    if (message?.type === 'text' && from && text) {
+      return { from, text };
+    }
+    return null;
+  }
+
+  /** Send a text reply via WhatsApp Cloud API (no-op log if token/phone id missing). */
+  async sendMessage(to: string, body: string): Promise<void> {
+    await this.sendWhatsAppReply(to, body);
+  }
+
   private extractInboundMessages(body: unknown): Array<{
     from: string;
     text: string;
@@ -128,10 +163,23 @@ export class WhatsappService {
       return;
     }
 
+    if (text.includes(BOT_WAKE_WORD)) {
+      try {
+        const question =
+          text.replace(new RegExp(BOT_WAKE_WORD, 'g'), '').trim() ||
+          BOT_WAKE_DEFAULT_QUESTION;
+        const answer = await this.query.answerQuestion(question);
+        await this.sendMessage(message.from, answer);
+      } catch {
+        await this.sendMessage(message.from, BOT_WAKE_FALLBACK_REPLY);
+      }
+      return;
+    }
+
     if (looksLikeQuestion(text)) {
       try {
         const answer = await this.query.answerQuestion(text);
-        await this.sendWhatsAppReply(message.from, answer);
+        await this.sendMessage(message.from, answer);
       } catch {
         await this.sendWhatsAppReply(
           message.from,
