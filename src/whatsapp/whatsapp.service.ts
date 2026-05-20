@@ -82,9 +82,21 @@ export class WhatsappService {
   ): Promise<{ status: string }> {
     this.verifySignature(rawBody, signature);
     const messages = this.extractInboundMessages(body);
+    if (messages.length === 0) {
+      this.logger.log(
+        'Webhook POST received with no inbound text messages (often status/delivery only)',
+      );
+      return { status: 'ok' };
+    }
     for (const m of messages) {
+      this.logger.log(
+        `Inbound WhatsApp text from ${m.from}: ${m.text.slice(0, 80)}${m.text.length > 80 ? '…' : ''}`,
+      );
       await this.dispatchMessage(m).catch((err) => {
-        this.logger.error(err instanceof Error ? err.message : err);
+        this.logger.error(
+          `dispatchMessage failed for ${m.from}`,
+          err instanceof Error ? err.stack : err,
+        );
       });
     }
     return { status: 'ok' };
@@ -151,6 +163,9 @@ export class WhatsappService {
       },
     });
     if (!user) {
+      this.logger.warn(
+        `No User for WhatsApp from=${message.from} normalized=${normalized} — sending registration hint`,
+      );
       await this.sendWhatsAppReply(
         message.from,
         'מספר זה לא רשום במערכת. יש להירשם דרך האפליקציה.',
@@ -258,5 +273,6 @@ export class WhatsappService {
       this.logger.error(`WhatsApp send failed: ${res.status} ${errText}`);
       throw new BadRequestException('שליחת הודעת וואטסאפ נכשלה');
     }
+    this.logger.log(`WhatsApp reply sent to ${toRaw.replace(/\D/g, '')}`);
   }
 }

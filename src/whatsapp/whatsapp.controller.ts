@@ -46,7 +46,12 @@ export class WhatsappController {
     @Headers('x-hub-signature-256') signature: string | undefined,
     @Body() body: unknown,
   ) {
-    const raw = req.rawBody;
-    return this.whatsapp.handleWebhookPayload(raw, signature, body);
+    console.log('INCOMING WHATSAPP:', JSON.stringify(body, null, 2));
+
+    return this.whatsapp.handleWebhookPayload(
+      req.rawBody,
+      signature,
+      body,
+    );
   }
 }
