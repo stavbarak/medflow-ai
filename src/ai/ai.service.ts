@@ -1,7 +1,10 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { validateAppointmentExtraction } from './ai-validation';
+import {
+  mergeWakeAppointmentExtraction,
+  type WakeAppointmentFields,
+} from './wake-appointment';
 
 @Injectable()
 export class AiService {
@@ -36,7 +39,7 @@ export class AiService {
   /**
    * Extract structured appointment fields from free Hebrew text. Output is validated before return.
    */
-  async extractAppointmentFromText(text: string) {
+  async extractAppointmentFromText(text: string): Promise<WakeAppointmentFields> {
     const openai = this.ensureClient();
     const completion = await openai.chat.completions.create({
       model: this.model,
@@ -44,7 +47,7 @@ export class AiService {
       messages: [
         {
           role: 'system',
-          content: `You extract medical appointment information from Hebrew text for ONE patient only (context: ${this.patientLabel}). Return a JSON object only, with optional keys: title (string), dateTime (ISO 8601 string in local Israel context if year missing use current/next plausible date), location (string), notes (string), requirements (array of { description: string }). Use Hebrew text values where appropriate. If a field is unknown, omit it.`,
+          content: `You extract medical appointment information from Hebrew text for ONE patient only (context: ${this.patientLabel}). Return JSON only with optional keys: title, location, notes, requirements (array of { description }). Do NOT include dateTime — dates are parsed separately. Put transportation (מונית, רכב), who accompanies the patient (שם מלווה), and preparation reminders in notes. Use Hebrew. Omit unknown fields; never invent times, years, or locations.`,
         },
         { role: 'user', content: text },
       ],
@@ -59,7 +62,7 @@ export class AiService {
     } catch {
       throw new ServiceUnavailableException('פלט המודל אינו JSON תקין');
     }
-    return validateAppointmentExtraction(parsed);
+    return mergeWakeAppointmentExtraction(parsed, text);
   }
 
   /**
@@ -72,7 +75,7 @@ export class AiService {
       messages: [
         {
           role: 'system',
-          content: `You answer questions in Hebrew only. Use ONLY the facts JSON provided by the user message labeled FACTS. If the answer is not in the facts, reply briefly that you are not sure or that it is not stored (in Hebrew). Be concise and natural, suitable for WhatsApp.`,
+          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS (including appointment notes for transport, companions, and preparation). If the answer is not in the facts, say briefly in Hebrew that it is not stored. Be concise, suitable for WhatsApp.`,
         },
         {
           role: 'user',

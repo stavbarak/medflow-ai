@@ -42,8 +42,11 @@ model Appointment {
   responsibleUser   User?    @relation("AppointmentResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   requirements      Requirement[]
   documents         MedicalDocument[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([dateTime])
+  @@index([createdAt])
 }
 
 model Requirement {

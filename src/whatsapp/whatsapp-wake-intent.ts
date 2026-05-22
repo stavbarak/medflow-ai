@@ -3,7 +3,7 @@ import {
   looksLikeQuestion,
 } from '../common/utils/question-heuristic';
 
-export type WakeIntent = 'list' | 'question' | 'create' | 'cancel';
+export type WakeIntent = 'list' | 'question' | 'create' | 'cancel' | 'update';
 
 export function stripWakeWord(text: string): string {
   return text.replace(new RegExp(BOT_WAKE_WORD, 'g'), '').trim();
@@ -11,6 +11,9 @@ export function stripWakeWord(text: string): string {
 
 const CANCEL_RE =
   /(תבטל|תבטלי|בטל|בטלי|מחק|מחקי|ביטול|לבטל|להסיר|הסר|cancel)/iu;
+
+const UPDATE_RE =
+  /(התבלבל|תתקן|תתקני|תשנה|תשני|תעדכן|עדכן|תקן|תקני|לא נכון|תיקון|לתקן|לשנות|לעדכן|שנה את|שני את)/iu;
 
 const CREATE_RE =
   /(יש תור|תור ב|תור ל|תור ב-|נקבע|נוסף|הוסף|לקבוע|לתאם|תור חדש)/iu;
@@ -24,6 +27,9 @@ export function classifyWakePayload(payload: string): WakeIntent {
   }
   if (CANCEL_RE.test(payload)) {
     return 'cancel';
+  }
+  if (UPDATE_RE.test(payload)) {
+    return 'update';
   }
   if (looksLikeQuestion(payload)) {
     return 'question';

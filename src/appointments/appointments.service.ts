@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { jerusalemCalendarDayRange } from '../common/utils/appointment-datetime';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -90,16 +91,19 @@ export class AppointmentsService {
     return rows[0] ?? null;
   }
 
-  /** Appointments whose `dateTime` falls on the same UTC calendar day as `day`. */
+  /** Appointments on the same calendar day in Asia/Jerusalem as `day`. */
   findOnCalendarDay(day: Date) {
-    const start = new Date(
-      Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()),
-    );
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
+    const { start, end } = jerusalemCalendarDayRange(day);
     return this.prisma.appointment.findMany({
       where: { dateTime: { gte: start, lt: end } },
       orderBy: { dateTime: 'asc' },
+      include: appointmentInclude,
+    });
+  }
+
+  findMostRecentlyCreated() {
+    return this.prisma.appointment.findFirst({
+      orderBy: { createdAt: 'desc' },
       include: appointmentInclude,
     });
   }

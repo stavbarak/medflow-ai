@@ -12,6 +12,11 @@ import { AiService } from '../ai/ai.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
+import {
+  formatAppointmentWhenHebrew,
+  listDateMatchesInText,
+  parseAppointmentWhenFromMatch,
+} from '../common/utils/appointment-datetime';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
   classifyWakePayload,
@@ -148,6 +153,9 @@ export class WhatsappService {
         case 'create':
           await this.safeSend(from, await this.handleWakeCreate(payload));
           return;
+        case 'update':
+          await this.safeSend(from, await this.handleWakeUpdate(payload));
+          return;
       }
     } catch (err) {
       this.logger.error(err instanceof Error ? err.message : err);
@@ -167,7 +175,7 @@ export class WhatsappService {
       title,
       dateTime: extracted.dateTime,
       location,
-      notes: extracted.notes ?? '',
+      notes: extracted.notes?.trim() ?? '',
     });
 
     if (extracted.requirements?.length) {
@@ -178,11 +186,84 @@ export class WhatsappService {
       }
     }
 
-    const when = new Date(created.dateTime).toLocaleString('he-IL', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
-    return `הוספתי תור: ${created.title} — ${when}, ${created.location}.`;
+    const when = formatAppointmentWhenHebrew(
+      created.dateTime,
+      extracted.hasTime,
+    );
+    const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
+    return `הוספתי תור: ${created.title} — ${when}${timeNote}, ${created.location}.`;
+  }
+
+  private async handleWakeUpdate(payload: string): Promise<string> {
+    const extracted = await this.ai.extractAppointmentFromText(payload);
+    const target = await this.findAppointmentForUpdate(payload);
+    if (!target) {
+      return 'לא מצאתי תור לעדכון. נסו לציין תאריך או ליצור תור חדש.';
+    }
+
+    const patch: {
+      title?: string;
+      dateTime?: string;
+      location?: string;
+      notes?: string;
+    } = {};
+
+    if (extracted.dateTime) {
+      patch.dateTime = extracted.dateTime;
+    }
+    if (extracted.title?.trim()) {
+      patch.title = extracted.title.trim();
+    }
+    if (extracted.location?.trim()) {
+      patch.location = extracted.location.trim();
+    }
+    if (extracted.notes?.trim()) {
+      const prev = target.notes?.trim();
+      patch.notes = prev
+        ? `${prev}\n${extracted.notes.trim()}`
+        : extracted.notes.trim();
+    }
+
+    if (
+      !patch.dateTime &&
+      !patch.title &&
+      !patch.location &&
+      !patch.notes
+    ) {
+      return 'לא זיהיתי מה לעדכן. נסו: חנטריש זה 25.5.2026 ותשנה ל-11:00';
+    }
+
+    const updated = await this.appointments.update(target.id, patch);
+    const when = formatAppointmentWhenHebrew(
+      updated.dateTime,
+      extracted.hasTime,
+    );
+    const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
+    return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.`;
+  }
+
+  private async findAppointmentForUpdate(payload: string) {
+    const dates = listDateMatchesInText(payload);
+    if (dates.length >= 2) {
+      const first = dates[0];
+      const when = parseAppointmentWhenFromMatch(
+        first.day,
+        first.month,
+        first.yearRaw,
+        payload,
+      );
+      const rows = await this.appointments.findOnCalendarDay(
+        new Date(when.dateTime),
+      );
+      if (rows.length > 0) {
+        return rows.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )[0];
+      }
+    }
+
+    return this.appointments.findMostRecentlyCreated();
   }
 
   private async handleWakeCancel(payload: string): Promise<string> {
@@ -194,9 +275,7 @@ export class WhatsappService {
     const day = new Date(extracted.dateTime);
     const rows = await this.appointments.findOnCalendarDay(day);
     if (rows.length === 0) {
-      const when = day.toLocaleDateString('he-IL', {
-        dateStyle: 'short',
-      });
+      const when = formatAppointmentWhenHebrew(day, false);
       return `לא מצאתי תור בתאריך ${when}.`;
     }
 
@@ -205,10 +284,7 @@ export class WhatsappService {
     }
 
     const lines = rows.map((r) => {
-      const when = new Date(r.dateTime).toLocaleString('he-IL', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      });
+      const when = formatAppointmentWhenHebrew(r.dateTime, true);
       return `• ${r.title} (${when})`;
     });
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { formatAppointmentWhenHebrew } from '../common/utils/appointment-datetime';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 
@@ -56,10 +57,7 @@ export class QueryService {
     }
     const lines = ['📋 תורים ומשימות קרובים:', ''];
     for (const a of upcomingAppointments) {
-      const when = new Date(a.dateTime).toLocaleString('he-IL', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-      });
+      const when = formatAppointmentWhenHebrew(a.dateTime, true);
       lines.push(`• ${a.title} — ${when}`);
       lines.push(`  📍 ${a.location}`);
       if (a.notes) {
