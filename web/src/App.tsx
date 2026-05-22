@@ -75,12 +75,17 @@ export default function App() {
     setInfo(null);
     try {
       if (tab === 'forgot') {
-        const res = await api<{ message: string }>('/api/auth/forgot-password', {
-          method: 'POST',
-          body: JSON.stringify({ phoneNumber: phone }),
-        });
+        const res = await api<{ message: string; codeSent?: boolean }>(
+          '/api/auth/forgot-password',
+          {
+            method: 'POST',
+            body: JSON.stringify({ phoneNumber: phone }),
+          },
+        );
         setInfo(res.message);
-        setTab('reset');
+        if (res.codeSent) {
+          setTab('reset');
+        }
         return;
       }
       if (tab === 'reset') {

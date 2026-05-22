@@ -245,6 +245,12 @@ export class WhatsappService {
               type: 'body',
               parameters: [{ type: 'text', text: code }],
             },
+            {
+              type: 'button',
+              sub_type: 'url',
+              index: '0',
+              parameters: [{ type: 'text', text: code }],
+            },
           ],
         },
       });
@@ -260,7 +266,7 @@ export class WhatsappService {
     } catch (err) {
       if (this.isOutsideMessagingWindow(err)) {
         throw new BadRequestException(
-          'לא ניתן לשלוח קוד ב-WhatsApp: יש לשלוח הודעה למספר העסקי של MedFlow (למשל "חנטריש") ולנסות שוב בתוך 24 שעות, או להגדיר תבנית OTP ב-Meta (WHATSAPP_OTP_TEMPLATE_NAME).',
+          'לא ניתן לשלוח קוד ב-WhatsApp (חלון 24 שעות): שלח הודעה למספר העסקי +972-53-571-2070 (למשל "חנטריש") ונסה שוב, או הגדר תבנית OTP ב-Meta (WHATSAPP_OTP_TEMPLATE_NAME).',
         );
       }
       throw err;

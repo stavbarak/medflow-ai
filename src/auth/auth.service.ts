@@ -30,6 +30,10 @@ const FORGOT_PASSWORD_SENT =
 const FORGOT_PASSWORD_COOLDOWN =
   'בקשת קוד כבר נשלחה. נסה שוב בעוד דקה.';
 
+/** Shown when plain-text WhatsApp is blocked (>24h since user messaged the business line). */
+const FORGOT_PASSWORD_REENGAGE =
+  'לא ניתן לשלוח קוד ב-WhatsApp ללא תבנית OTP. קודם שלח הודעה (למשל "חנטריש") למספר העסקי +972-53-571-2070, המתן כמה שניות, ואז נסה שוב. לפתרון קבוע: אשר תבנית Authentication ב-Meta והגדר WHATSAPP_OTP_TEMPLATE_NAME ב-Railway.';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -74,16 +78,19 @@ export class AuthService {
   }
 
   /** Always returns the same message (do not leak whether the phone is registered). */
-  async forgotPassword(dto: ForgotPasswordDto) {
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{
+    message: string;
+    codeSent: boolean;
+  }> {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const last = this.forgotCooldown.get(phoneNumber);
     if (last && Date.now() - last < FORGOT_COOLDOWN_MS) {
-      return { message: FORGOT_PASSWORD_COOLDOWN };
+      return { message: FORGOT_PASSWORD_COOLDOWN, codeSent: false };
     }
 
     const user = await this.findUserByPhone(dto.phoneNumber);
     if (!user) {
-      return { message: FORGOT_PASSWORD_ACK_UNKNOWN };
+      return { message: FORGOT_PASSWORD_ACK_UNKNOWN, codeSent: false };
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -97,8 +104,6 @@ export class AuthService {
       data: { userId: user.id, codeHash, expiresAt },
     });
 
-    this.forgotCooldown.set(phoneNumber, Date.now());
-
     try {
       await this.whatsapp.sendPasswordResetCode(phoneNumber, code);
     } catch (err) {
@@ -106,18 +111,21 @@ export class AuthService {
         where: { userId: user.id },
       });
       this.logger.error(
-        `Password reset WhatsApp failed for ${phoneNumber}; code was ${code}`,
+        `Password reset WhatsApp failed for ${phoneNumber}`,
         err instanceof Error ? err.stack : err,
       );
       if (err instanceof BadRequestException) {
+        const msg = err.message;
+        if (/24|תבנית OTP|חנטריש/i.test(msg)) {
+          throw new BadRequestException(FORGOT_PASSWORD_REENGAGE);
+        }
         throw err;
       }
-      throw new BadRequestException(
-        'לא הצלחנו לשלוח קוד ב-WhatsApp. שלח הודעה למספר העסקי (למשל "חנטריש") ונסה שוב, או בדוק את הגדרות WhatsApp בשרת.',
-      );
+      throw new BadRequestException(FORGOT_PASSWORD_REENGAGE);
     }
 
-    return { message: FORGOT_PASSWORD_SENT };
+    this.forgotCooldown.set(phoneNumber, Date.now());
+    return { message: FORGOT_PASSWORD_SENT, codeSent: true };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
