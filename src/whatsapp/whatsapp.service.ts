@@ -13,10 +13,19 @@ import { AppointmentsService } from '../appointments/appointments.service';
 import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
 import {
+  formatAmbiguousUpdatePromptHebrew,
+  pickAppointmentForUpdate,
+  resolveUpdateTarget,
+} from '../common/utils/appointment-matcher';
+import {
+  applyTimeToAppointmentDay,
   formatAppointmentWhenHebrew,
   listDateMatchesInText,
   parseAppointmentWhenFromMatch,
+  parseAppointmentWhenFromText,
+  textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
+import { looksLikeAppointmentUpdate } from './whatsapp-wake-intent';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
   classifyWakePayload,
@@ -164,8 +173,15 @@ export class WhatsappService {
   }
 
   private async handleWakeCreate(payload: string): Promise<string> {
+    if (looksLikeAppointmentUpdate(payload)) {
+      return this.handleWakeUpdate(payload);
+    }
+
     const extracted = await this.ai.extractAppointmentFromText(payload);
     if (!extracted.dateTime) {
+      if (textHasExplicitTime(payload) || parseAppointmentWhenFromText(payload)) {
+        return this.handleWakeUpdate(payload);
+      }
       return 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
     }
 
@@ -196,10 +212,14 @@ export class WhatsappService {
 
   private async handleWakeUpdate(payload: string): Promise<string> {
     const extracted = await this.ai.extractAppointmentFromText(payload);
-    const target = await this.findAppointmentForUpdate(payload);
-    if (!target) {
-      return 'לא מצאתי תור לעדכון. נסו לציין תאריך או ליצור תור חדש.';
+    const lookup = await this.resolveAppointmentForUpdate(payload);
+    if (lookup.status === 'ambiguous') {
+      return formatAmbiguousUpdatePromptHebrew(lookup.appointments);
     }
+    if (lookup.status === 'unresolved') {
+      return 'לא מצאתי תור לעדכון. נסו לציין תאריך (למשל 25.5) או שם מרפאה.';
+    }
+    const target = lookup.appointment;
 
     const patch: {
       title?: string;
@@ -208,8 +228,22 @@ export class WhatsappService {
       notes?: string;
     } = {};
 
-    if (extracted.dateTime) {
-      patch.dateTime = extracted.dateTime;
+    let hasTime = extracted.hasTime;
+    const parsedWhen = parseAppointmentWhenFromText(payload);
+    if (parsedWhen) {
+      patch.dateTime = parsedWhen.dateTime;
+      hasTime = parsedWhen.hasTime;
+    } else {
+      const timeOnly = applyTimeToAppointmentDay(
+        new Date(target.dateTime),
+        payload,
+      );
+      if (timeOnly) {
+        patch.dateTime = timeOnly.dateTime;
+        hasTime = true;
+      } else if (extracted.dateTime) {
+        patch.dateTime = extracted.dateTime;
+      }
     }
     if (extracted.title?.trim()) {
       patch.title = extracted.title.trim();
@@ -234,36 +268,41 @@ export class WhatsappService {
     }
 
     const updated = await this.appointments.update(target.id, patch);
-    const when = formatAppointmentWhenHebrew(
-      updated.dateTime,
-      extracted.hasTime,
-    );
-    const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
+    const when = formatAppointmentWhenHebrew(updated.dateTime, hasTime);
+    const timeNote = hasTime ? '' : ' (שעה לא צוינה)';
     return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.`;
   }
 
-  private async findAppointmentForUpdate(payload: string) {
+  private async resolveAppointmentForUpdate(payload: string) {
     const dates = listDateMatchesInText(payload);
-    if (dates.length >= 2) {
-      const first = dates[0];
+
+    if (dates.length >= 1) {
+      const ref = dates.length >= 2 ? dates[0] : dates[dates.length - 1];
       const when = parseAppointmentWhenFromMatch(
-        first.day,
-        first.month,
-        first.yearRaw,
+        ref.day,
+        ref.month,
+        ref.yearRaw,
         payload,
       );
-      const rows = await this.appointments.findOnCalendarDay(
+      const onDay = await this.appointments.findOnCalendarDay(
         new Date(when.dateTime),
       );
-      if (rows.length > 0) {
-        return rows.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        )[0];
+      if (onDay.length > 0) {
+        return resolveUpdateTarget(payload, onDay);
       }
     }
 
-    return this.appointments.findMostRecentlyCreated();
+    const all = await this.appointments.findAll();
+    const matched = pickAppointmentForUpdate(payload, all);
+    if (matched) {
+      return { status: 'resolved' as const, appointment: matched };
+    }
+
+    const recent = await this.appointments.findMostRecentlyCreated();
+    if (recent) {
+      return { status: 'resolved' as const, appointment: recent };
+    }
+    return { status: 'unresolved' as const };
   }
 
   private async handleWakeCancel(payload: string): Promise<string> {

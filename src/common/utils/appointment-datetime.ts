@@ -125,11 +125,12 @@ export function textHasExplicitTime(text: string): boolean {
   return extractTimeFromText(text) !== null;
 }
 
-function extractTimeFromText(
+export function extractTimeFromText(
   text: string,
 ): { hour: number; minute: number } | null {
   const patterns: RegExp[] = [
     /(\d{1,2}):(\d{2})/u,
+    /(?:הוא|היא|זה|זו)\s+בשעה\s*(\d{1,2})(?::(\d{2}))?/iu,
     /בשעה\s*(\d{1,2})(?::(\d{2}))?/iu,
     /(?:תשנה|שנה|לעדכן|עדכן)[^.]{0,40}?ל[-–]?(\d{1,2})(?::(\d{2}))?/iu,
     /(?:^|[\s,])ל[-–](\d{1,2})(?::(\d{2}))?(?!\d)/iu,
@@ -198,6 +199,26 @@ export function parseAppointmentWhenFromText(
 
   const { day, month, yearRaw } = matches[matches.length - 1];
   return parseAppointmentWhenFromMatch(day, month, yearRaw, text, now);
+}
+
+/** Set wall-clock time on the same Jerusalem calendar day as an existing appointment. */
+export function applyTimeToAppointmentDay(
+  existingDateTime: Date,
+  text: string,
+): ParsedAppointmentWhen | null {
+  const time = extractTimeFromText(text);
+  if (!time) {
+    return null;
+  }
+  const parts = getJerusalemParts(existingDateTime);
+  const utc = jerusalemLocalToUtc(
+    parts.year,
+    parts.month,
+    parts.day,
+    time.hour,
+    time.minute,
+  );
+  return { dateTime: utc.toISOString(), hasTime: true };
 }
 
 /** All calendar dates mentioned in text (for matching an existing appointment on update). */
