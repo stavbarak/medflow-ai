@@ -22,7 +22,7 @@ function clientStaticModule(): DynamicModule[] {
   return [
     ServeStaticModule.forRoot({
       rootPath,
-      exclude: ['/api/{*any}'],
+      exclude: ['/api/(.*)'],
     }),
   ];
 }

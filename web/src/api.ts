@@ -25,20 +25,46 @@ function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-async function parseError(res: Response): Promise<string> {
-  const text = await res.text();
+function messageFromJson(j: { message?: string | string[] }): string | null {
+  if (Array.isArray(j.message)) {
+    return j.message.join(', ');
+  }
+  if (typeof j.message === 'string') {
+    return j.message;
+  }
+  return null;
+}
+
+async function readBodyText(res: Response): Promise<string> {
+  return res.text();
+}
+
+async function parseError(res: Response, text: string): Promise<string> {
+  if (!text.trim()) {
+    return `שגיאה ${res.status} — אין תגובה מהשרת (האם ה-API רץ?)`;
+  }
   try {
-    const j = JSON.parse(text) as { message?: string | string[] };
-    if (Array.isArray(j.message)) {
-      return j.message.join(', ');
-    }
-    if (typeof j.message === 'string') {
-      return j.message;
+    const msg = messageFromJson(JSON.parse(text) as { message?: string | string[] });
+    if (msg) {
+      return msg;
     }
   } catch {
     /* ignore */
   }
-  return text || `שגיאה ${res.status}`;
+  return text;
+}
+
+async function parseJsonBody<T>(res: Response, text: string): Promise<T> {
+  if (!text.trim()) {
+    throw new Error(
+      `תגובה ריקה מהשרת (${res.status}). אם אתה בפיתוח מקומי, הרץ את ה-API: npm run start:dev`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`תגובה לא תקינה מהשרת (${res.status})`);
+  }
 }
 
 /** Relative `/api` works with Vite dev proxy to Nest (port 3000). */
@@ -55,11 +81,12 @@ export async function api<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
   const res = await fetch(apiUrl(path), { ...options, headers });
+  const text = await readBodyText(res);
   if (!res.ok) {
-    throw new Error(await parseError(res));
+    throw new Error(await parseError(res, text));
   }
   if (res.status === 204) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  return parseJsonBody<T>(res, text);
 }
