@@ -19,6 +19,13 @@ async function bootstrap() {
       '/assets',
       express.static(join(CLIENT_DIR, 'assets'), { fallthrough: false }),
     );
+    // Favicon PNGs from Vite `web/public/` → `client/` root (not under /assets).
+    app.use(
+      express.static(CLIENT_DIR, {
+        index: false,
+        fallthrough: true,
+      }),
+    );
   }
 
   app.setGlobalPrefix('api', {
