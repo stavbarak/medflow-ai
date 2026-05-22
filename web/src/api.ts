@@ -56,6 +56,10 @@ async function parseError(res: Response, text: string): Promise<string> {
 
 async function parseJsonBody<T>(res: Response, text: string): Promise<T> {
   if (!text.trim()) {
+    // Nest often returns 200 with an empty body for `null` (e.g. no next appointment).
+    if (res.ok) {
+      return null as T;
+    }
     throw new Error(
       `תגובה ריקה מהשרת (${res.status}). נסה לרענן את הדף; אם הבעיה נמשכת, ייתכן שיש לפרוס מחדש את השרת ב-Railway.`,
     );

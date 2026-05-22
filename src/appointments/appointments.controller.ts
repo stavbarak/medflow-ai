@@ -3,14 +3,17 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
   DefaultValuePipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -35,8 +38,11 @@ export class AppointmentsController {
   }
 
   @Get('next')
-  next() {
-    return this.appointments.next();
+  @HttpCode(200)
+  async next(@Res() res: Response) {
+    const row = await this.appointments.next();
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).json(row);
   }
 
   @Get()

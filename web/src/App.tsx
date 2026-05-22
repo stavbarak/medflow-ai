@@ -54,9 +54,13 @@ export default function App() {
       setNextAppt(nextRes);
       setList(allRes);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה בטעינה');
-      setToken(null);
-      setTokenState(null);
+      const msg = e instanceof Error ? e.message : 'שגיאה בטעינה';
+      setError(msg);
+      // Only log out when the session is invalid — not when optional data (e.g. no next appt) fails to parse.
+      if (/unauthorized|401|התחברות|פג תוקף|jwt/i.test(msg)) {
+        setToken(null);
+        setTokenState(null);
+      }
     } finally {
       setBusy(false);
     }
