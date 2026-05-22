@@ -2,11 +2,23 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import {
+  clientAssetsMiddleware,
+  clientDirReady,
+  spaFallbackMiddleware,
+} from './spa.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
+
+  if (clientDirReady()) {
+    const http = app.getHttpAdapter().getInstance();
+    http.use(clientAssetsMiddleware());
+    http.use(spaFallbackMiddleware());
+  }
+
   app.setGlobalPrefix('api');
   const defaultCorsOrigins = [
     'http://localhost:5173',

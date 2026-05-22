@@ -10,13 +10,13 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  async register(@Body() dto: RegisterDto) {
+    return await this.auth.register(dto);
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  async login(@Body() dto: LoginDto) {
+    return await this.auth.login(dto);
   }
 
   @Post('forgot-password')
