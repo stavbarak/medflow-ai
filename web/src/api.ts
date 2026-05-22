@@ -41,7 +41,7 @@ async function readBodyText(res: Response): Promise<string> {
 
 async function parseError(res: Response, text: string): Promise<string> {
   if (!text.trim()) {
-    return `שגיאה ${res.status} — אין תגובה מהשרת (האם ה-API רץ?)`;
+    return `שגיאה ${res.status} — אין תגובה מהשרת`;
   }
   try {
     const msg = messageFromJson(JSON.parse(text) as { message?: string | string[] });
@@ -57,7 +57,7 @@ async function parseError(res: Response, text: string): Promise<string> {
 async function parseJsonBody<T>(res: Response, text: string): Promise<T> {
   if (!text.trim()) {
     throw new Error(
-      `תגובה ריקה מהשרת (${res.status}). אם אתה בפיתוח מקומי, הרץ את ה-API: npm run start:dev`,
+      `תגובה ריקה מהשרת (${res.status}). נסה לרענן את הדף; אם הבעיה נמשכת, ייתכן שיש לפרוס מחדש את השרת ב-Railway.`,
     );
   }
   try {
