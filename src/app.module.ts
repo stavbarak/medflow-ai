@@ -13,6 +13,7 @@ import { AiModule } from './ai/ai.module';
 import { QueryModule } from './query/query.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 
+/** SPA from /client (Docker). RegExp renderPath avoids Express 5 "{*any}" 500 errors. */
 function clientStaticModule(): DynamicModule[] {
   const rootPath = join(process.cwd(), 'client');
   if (!existsSync(join(rootPath, 'index.html'))) {
@@ -21,8 +22,8 @@ function clientStaticModule(): DynamicModule[] {
   return [
     ServeStaticModule.forRoot({
       rootPath,
-      exclude: ['/api/(.*)'],
-      serveStaticOptions: { index: false },
+      renderPath: /^(?!\/api(?:\/|$)).*/,
+      serveStaticOptions: { index: false, fallthrough: true },
     }),
   ];
 }
