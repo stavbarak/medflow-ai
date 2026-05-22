@@ -47,7 +47,7 @@ export class AiService {
       messages: [
         {
           role: 'system',
-          content: `You extract medical appointment information from Hebrew text for ONE patient only (context: ${this.patientLabel}). Return JSON only with optional keys: title, location, notes, requirements (array of { description }). Do NOT include dateTime — dates are parsed separately. ALWAYS put transportation (מונית, רכב, איך מגיעים), who accompanies the patient (שמות מלווים), and preparation reminders in notes when mentioned — never omit them. For follow-up edits (only time or location), return only the fields being changed. Use Hebrew. Omit unknown fields; never invent times, years, or locations.`,
+          content: `You extract medical appointment information from Hebrew text for ONE patient only (context: ${this.patientLabel}). Return JSON only with optional keys: title, location, notes, requirements (array of { description }). Do NOT include dateTime — dates are parsed separately. On NEW appointments, put transportation and companions in notes when the user mentions them. On edits that ONLY change time or date, return {} or omit title, location, notes, and requirements entirely — do not repeat or invent notes. Only include notes when the user adds new note content in this message. Never output bare keywords like "מונית, איך מגיעים". Use Hebrew. Omit unknown fields.`,
         },
         { role: 'user', content: text },
       ],

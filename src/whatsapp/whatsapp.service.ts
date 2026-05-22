@@ -25,7 +25,11 @@ import {
   parseAppointmentWhenFromText,
   textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
-import { looksLikeAppointmentUpdate } from './whatsapp-wake-intent';
+import {
+  looksLikeAppointmentUpdate,
+  looksLikeNotesUpdate,
+  looksLikeScheduleOnlyUpdate,
+} from './whatsapp-wake-intent';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
   classifyWakePayload,
@@ -245,17 +249,22 @@ export class WhatsappService {
         patch.dateTime = extracted.dateTime;
       }
     }
-    if (extracted.title?.trim()) {
+    const scheduleOnly = looksLikeScheduleOnlyUpdate(payload);
+
+    if (!scheduleOnly && extracted.title?.trim()) {
       patch.title = extracted.title.trim();
     }
-    if (extracted.location?.trim()) {
+    if (!scheduleOnly && extracted.location?.trim()) {
       patch.location = extracted.location.trim();
     }
-    if (extracted.notes?.trim()) {
+    if (looksLikeNotesUpdate(payload) && extracted.notes?.trim()) {
+      const incoming = extracted.notes.trim();
       const prev = target.notes?.trim();
-      patch.notes = prev
-        ? `${prev}\n${extracted.notes.trim()}`
-        : extracted.notes.trim();
+      if (!prev) {
+        patch.notes = incoming;
+      } else if (!prev.includes(incoming)) {
+        patch.notes = `${prev}\n${incoming}`;
+      }
     }
 
     if (

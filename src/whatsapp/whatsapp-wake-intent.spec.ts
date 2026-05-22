@@ -1,6 +1,8 @@
 import {
   classifyWakePayload,
   looksLikeAppointmentUpdate,
+  looksLikeNotesUpdate,
+  looksLikeScheduleOnlyUpdate,
 } from './whatsapp-wake-intent';
 
 describe('classifyWakePayload', () => {
@@ -27,5 +29,17 @@ describe('classifyWakePayload', () => {
   it('treats change-by-date as update', () => {
     const payload = 'תשנה את התור של ה-25.5 לשעה 11:00';
     expect(classifyWakePayload(payload)).toBe('update');
+  });
+
+  it('treats time change as schedule-only (not a notes edit)', () => {
+    const payload = 'תשנה את התור של ה-25.5 לשעה 11:00';
+    expect(looksLikeScheduleOnlyUpdate(payload)).toBe(true);
+    expect(looksLikeNotesUpdate(payload)).toBe(false);
+  });
+
+  it('detects explicit notes updates', () => {
+    expect(
+      looksLikeNotesUpdate('תוסיף להערות שאבא יגיע במונית ועדי איתו'),
+    ).toBe(true);
   });
 });

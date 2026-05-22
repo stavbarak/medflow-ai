@@ -29,7 +29,28 @@ const CLINIC_OR_SITE_RE =
   /(מרפאה|איכילוב|בית חולים|בית-חולים|מכון|קופת|הדסה|שיבא|סורוקה|אסף|רמבם)/iu;
 
 const FIELD_UPDATE_RE =
-  /(בשעה|השעה|הוא בשעה|היא בשעה|מיקום|במקום|הערות|מונית|מלווה|ילווה|מגיע)/iu;
+  /(בשעה|השעה|הוא בשעה|היא בשעה|מיקום|במקום|הערות|מלווה|ילווה|מגיע)/iu;
+
+const NOTES_UPDATE_RE =
+  /(הערה|הערות|תוסיף|תוסיפי|להוסיף|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|יגיע|מגיע|נהג|נהגת|במונית|ברכב)/iu;
+
+/** User is adding or changing free-text notes (not just time/date). */
+export function looksLikeNotesUpdate(payload: string): boolean {
+  return NOTES_UPDATE_RE.test(payload);
+}
+
+/** User is only changing schedule (date/time) or picking which appointment — not notes. */
+export function looksLikeScheduleOnlyUpdate(payload: string): boolean {
+  if (looksLikeNotesUpdate(payload)) {
+    return false;
+  }
+  return (
+    looksLikeAppointmentUpdate(payload) &&
+    (textHasExplicitTime(payload) ||
+      DATE_HINT_RE.test(payload) ||
+      UPDATE_RE.test(payload))
+  );
+}
 
 /** Follow-up edits: add time/notes to an existing appointment without repeating the date. */
 export function looksLikeAppointmentUpdate(payload: string): boolean {
