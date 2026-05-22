@@ -3,9 +3,9 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import {
-  clientAssetsMiddleware,
   clientDirReady,
-  spaFallbackMiddleware,
+  createClientHostingMiddleware,
+  skipApi,
 } from './spa.middleware';
 
 async function bootstrap() {
@@ -14,9 +14,10 @@ async function bootstrap() {
   });
 
   if (clientDirReady()) {
+    const { assets, spa } = createClientHostingMiddleware();
     const http = app.getHttpAdapter().getInstance();
-    http.use(clientAssetsMiddleware());
-    http.use(spaFallbackMiddleware());
+    http.use('/assets', assets);
+    http.use(skipApi(spa));
   }
 
   app.setGlobalPrefix('api');
