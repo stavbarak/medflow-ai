@@ -1,26 +1,30 @@
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
+import express from 'express';
 import { AppModule } from './app.module';
-import {
-  clientDirReady,
-  createClientHostingMiddleware,
-  skipApi,
-} from './spa.middleware';
+import { CLIENT_DIR, clientDirReady } from './spa.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
 
+  const http = app.getHttpAdapter().getInstance();
+  http.set('etag', false);
+
   if (clientDirReady()) {
-    const { assets, spa } = createClientHostingMiddleware();
-    const http = app.getHttpAdapter().getInstance();
-    http.use('/assets', assets);
-    http.use(skipApi(spa));
+    app.use(
+      '/assets',
+      express.static(join(CLIENT_DIR, 'assets'), { fallthrough: false }),
+    );
   }
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: [{ path: '/', method: RequestMethod.GET }],
+  });
+
   const defaultCorsOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',

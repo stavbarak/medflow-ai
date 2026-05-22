@@ -80,7 +80,11 @@ export async function api<T>(
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  const res = await fetch(apiUrl(path), { ...options, headers });
+  const res = await fetch(apiUrl(path), {
+    cache: 'no-store',
+    ...options,
+    headers,
+  });
   const text = await readBodyText(res);
   if (!res.ok) {
     throw new Error(await parseError(res, text));

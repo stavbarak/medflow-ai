@@ -9,6 +9,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { AiModule } from './ai/ai.module';
 import { QueryModule } from './query/query.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { RootController } from './root.controller';
 
 @Module({
   imports: [
@@ -23,5 +24,6 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     QueryModule,
     WhatsappModule,
   ],
+  controllers: [RootController],
 })
 export class AppModule {}
