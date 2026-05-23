@@ -56,6 +56,14 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 ---
 
+### `PhoneAllowlistModule`
+
+**Role:** **Family access control** — only approved phone numbers can register, log in, reset passwords, or talk to the WhatsApp bot.
+
+**How:** Global `@Global()` module exposing **`PhoneAllowlistService`**. Checks **`ALLOWED_PHONE_NUMBERS`** (comma-separated env) **or** rows in the **`AllowedPhone`** Prisma table. Used by **`AuthService`** (register/login/forgot) and **`WhatsappService.dispatchMessage`** before any bot logic. Unknown numbers get a Hebrew rejection message—not a silent drop on the web API.
+
+---
+
 ### `AuthModule`
 
 **Role:** **Register**, **login**, and everything needed to **issue and validate JWTs**.
@@ -98,25 +106,35 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 ### `AiModule`
 
-**Role:** **Call OpenAI** for **structured extraction** from free-form Hebrew (or other) text — e.g. turn a pasted message into candidate appointment fields.
+**Role:** **All OpenAI HTTP calls** — structured extraction, update reconciliation, notes merge, and grounded Q&A phrasing.
 
-**How:** **`AiController`** exposes `POST /api/ai/extract` (JWT), mainly for **debugging and tools**; the heavy logic lives in **`AiService`**, which builds prompts, parses model output, and stays focused on **extraction**, not open-ended chat. Other modules (e.g. WhatsApp) can import **`AiModule`** and reuse **`AiService`** without duplicating API keys or HTTP client setup.
+**How:** **`AiController`** exposes `POST /api/ai/extract` (JWT) for debugging. **`AiService`** owns prompts, `JSON.parse`, and post-processing (`mergeWakeAppointmentExtraction`, `filterNotesToSourceText`). It does **not** query Prisma—callers pass text in and get validated fields back. See the full walkthrough with diagrams in [Stage 3 — AI](stage-3-ai-extraction-and-queries.md).
+
+**Key methods:**
+
+| Method | Used by |
+|--------|---------|
+| `extractAppointmentFromText` | WhatsApp create, `/api/ai/extract` |
+| `extractAppointmentUpdateDelta` | WhatsApp update (requirements only) |
+| `reconcileAppointmentUpdate` | WhatsApp update (title/location/mergeNotes flag) |
+| `mergeAppointmentNotes` | WhatsApp update (companions, transport, prep) |
+| `answerQuestionFromFacts` | `QueryService`, WhatsApp questions |
 
 ---
 
 ### `QueryModule`
 
-**Role:** **Grounded question answering** — the model should lean on **facts we serialize from the database** (upcoming appointments, requirements, responsible contacts), not invent appointments from thin air.
+**Role:** **Grounded question answering** — read DB first, then ask the model to phrase a Hebrew answer from a JSON facts blob.
 
-**How:** **`QueryController`** exposes `POST /api/query/answer` with a **question** in the body. **`QueryService`** builds a **JSON “facts” payload** (next several upcoming visits with nested requirements), then **`AiService.answerQuestionFromFacts`** prompts the model to answer **only** from that JSON. **`QueryModule`** imports **`AiModule`** so LLM wiring stays in one place. Like the rest of the calendar, the facts snapshot is **shared across logged-in users**—appropriate for a small household tool; a stricter multi-tenant product would filter every query by `userId`.
+**How:** **`QueryController`** → `POST /api/query/answer`. **`QueryService.buildFactsPayload`** loads the next 15 upcoming appointments (with requirements and responsible user). **`formatFactsDumpHebrew`** formats the same data **without** an LLM (WhatsApp `חנטריש` alone). Imports **`AiModule`** only for `answerQuestionFromFacts`. Details: [Stage 3 walkthrough 2](stage-3-ai-extraction-and-queries.md#walkthrough-2--grounded-qa).
 
 ---
 
 ### `WhatsappModule`
 
-**Role:** **Meta WhatsApp Cloud API** integration — **webhook verification**, **incoming messages**, and orchestration (appointments, requirements, optional AI/query).
+**Role:** **Meta WhatsApp Cloud API** — webhook verification, inbound messages, wake-word orchestration.
 
-**How:** **`WhatsappController`** is **not** behind JWT (Meta calls it). `GET /api/whatsapp` returns the **hub challenge** when the verify token matches. `POST /api/whatsapp` receives payloads on the **same path**; the app is bootstrapped with **`rawBody: true`** so **`WhatsappService`** can verify **`X-Hub-Signature-256`** against the raw bytes. The service links external sender identity to your users, updates data through **`AppointmentsService`** / **`RequirementsService`**, and can call **`AiService`** / **`QueryService`** for richer flows. **`WhatsappModule`** **imports** those modules instead of reaching into Prisma for everything—**clear boundaries**, easier to test and to read.
+**How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on allowlist + registered user, classifies intent (`whatsapp-wake-intent.ts`), and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
 
 ---
 
@@ -126,9 +144,81 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** A single `@Module({ imports: [...] })` list. Order matters for static files: **feature modules first**, **`ServeStaticModule`** last so API routes win for `/api` and the SPA fallback handles client-side routes.
 
+```15:30:src/app.module.ts
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
+    PhoneAllowlistModule,
+    AuthModule,
+    UsersModule,
+    AppointmentsModule,
+    RequirementsModule,
+    DocumentsModule,
+    AiModule,
+    QueryModule,
+    WhatsappModule,
+  ],
+  controllers: [RootController],
+})
+```
+
 ---
 
-## Mental map
+## Module dependency graph
+
+Who imports whom (solid = explicit `imports:` in module file; dashed = global inject):
+
+```mermaid
+flowchart TB
+  AppModule --> PrismaModule
+  AppModule --> PhoneAllowlistModule
+  AppModule --> AuthModule
+  AppModule --> WhatsappModule
+  AppModule --> QueryModule
+  AppModule --> AiModule
+
+  QueryModule --> AiModule
+  WhatsappModule --> AiModule
+  WhatsappModule --> QueryModule
+  WhatsappModule --> AppointmentsModule
+  WhatsappModule --> RequirementsModule
+  WhatsappModule --> UsersModule
+  AuthModule --> WhatsappModule
+
+  AuthModule -.-> PhoneAllowlistModule
+  WhatsappModule -.-> PhoneAllowlistModule
+  QueryModule -.-> PrismaModule
+  AiModule -.-> ConfigModule
+```
+
+**Notable coupling:** `AuthModule` imports `WhatsappModule` for password-reset OTP over WhatsApp—not the other way around.
+
+---
+
+## Request paths (two front doors)
+
+```mermaid
+flowchart LR
+  subgraph spa ["Web SPA (JWT)"]
+    R[Register / Login] --> JWT[JWT Bearer]
+    JWT --> AP[/api/appointments]
+    JWT --> Q[/api/query/answer]
+    JWT --> E[/api/ai/extract]
+  end
+
+  subgraph wa ["WhatsApp (no JWT)"]
+    M[Meta webhook] --> W[/api/whatsapp]
+    W --> AL{allowlist + user?}
+    AL --> INT[intent + services]
+  end
+
+  AP --> DB[(Postgres)]
+  Q --> DB
+  INT --> DB
+```
+
+Both paths call the **same services** for appointments and AI—only the adapter differs.
 
 ```text
 HTTP request
@@ -140,6 +230,8 @@ HTTP request
 ```
 
 If you remember only one thing: **modules are boundaries**, **services hold behavior**, **controllers are thin HTTP adapters**, and **Prisma + Config + Auth** are the shared foundation everything else stands on.
+
+For a **deep dive on AI flows** (extraction, Q&A, notes grounding, WhatsApp update pipeline), read [Stage 3 — AI](stage-3-ai-extraction-and-queries.md) next.
 
 ---
 

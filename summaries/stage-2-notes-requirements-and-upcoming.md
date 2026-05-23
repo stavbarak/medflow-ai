@@ -30,4 +30,12 @@ Recurring appointments, iCal feeds, push notifications, multi-timezone user prof
 
 ---
 
+## How Stage 3 AI reads this data
+
+When someone asks a question (web or WhatsApp), **`QueryService.buildFactsPayload`** pulls the next **15** upcoming appointments **including** `notes`, nested **`requirements`** (`description`, `isDone`), and the **responsible** user’s name. That JSON blob is the **only** context the LLM gets for Q&A—so rich notes and checklists here directly improve bot answers.
+
+WhatsApp **create/update** can also **write** requirements via extraction (`requirements[]` in the model JSON). See [Stage 3 walkthroughs](stage-3-ai-extraction-and-queries.md).
+
+---
+
 *Previous: [Stage 1](stage-1-nest-auth-and-appointments.md) · Next: [Stage 3 — AI](stage-3-ai-extraction-and-queries.md)*
