@@ -1,22 +1,25 @@
-import { buildAdditiveUpdatePatch } from './appointment-update-patch';
+import { buildSchedulePatch } from './appointment-update-patch';
 
-describe('buildAdditiveUpdatePatch', () => {
+describe('buildSchedulePatch', () => {
   const target = {
-    dateTime: new Date('2026-07-30T09:00:00.000Z'),
-    title: 'ביקורת קרדיו',
-    location: 'איכילוב',
-    notes: 'עדי תהיה איתו',
+    dateTime: new Date('2026-07-30T06:30:00.000Z'), // 9:30 Jerusalem-ish
   };
 
-  it('only changes time when requested', () => {
-    const { patch } = buildAdditiveUpdatePatch(
+  it('does not patch dateTime when only a date is mentioned', () => {
+    const { patch, timeMentionedInMessage } = buildSchedulePatch(
+      'תעדכן שהתור ב-30.7 הוא לביקורת קרדיו אונקולוגיה באיכילוב',
+      target,
+    );
+    expect(patch.dateTime).toBeUndefined();
+    expect(timeMentionedInMessage).toBe(false);
+  });
+
+  it('patches dateTime only when time is explicit', () => {
+    const { patch, timeMentionedInMessage } = buildSchedulePatch(
       'תעדכן שהתור ב-30.7 הוא בשעה 9:30',
       target,
-      { wantsTimeChange: true },
     );
     expect(patch.dateTime).toBeDefined();
-    expect(patch.notes).toBeUndefined();
-    expect(patch.title).toBeUndefined();
-    expect(patch.location).toBeUndefined();
+    expect(timeMentionedInMessage).toBe(true);
   });
 });

@@ -1,8 +1,8 @@
 import {
   applyTimeToAppointmentDay,
-  parseAppointmentWhenFromText,
   textHasExplicitTime,
 } from './appointment-datetime';
+
 export type AdditiveUpdatePatch = {
   title?: string;
   dateTime?: string;
@@ -12,46 +12,34 @@ export type AdditiveUpdatePatch = {
 
 export type BuiltAdditiveUpdate = {
   patch: AdditiveUpdatePatch;
-  hasTime: boolean;
+  timeMentionedInMessage: boolean;
 };
 
 type AppointmentRow = {
   dateTime: Date;
-  title: string;
-  location: string;
-  notes: string;
 };
 
 /**
- * Build a minimal patch: only fields the user asked to change in this message.
- * Everything else on the appointment stays as-is.
+ * Patch schedule ONLY when the user explicitly gave a time in this message.
+ * Never touch dateTime when they only mention a date or visit details.
  */
-export function buildAdditiveUpdatePatch(
+export function buildSchedulePatch(
   payload: string,
   target: AppointmentRow,
-  opts: {
-    wantsTimeChange: boolean;
-  },
 ): BuiltAdditiveUpdate {
   const patch: AdditiveUpdatePatch = {};
-  let hasTime = false;
-
-  if (opts.wantsTimeChange) {
-    const parsedWhen = parseAppointmentWhenFromText(payload);
-    if (parsedWhen) {
-      patch.dateTime = parsedWhen.dateTime;
-      hasTime = parsedWhen.hasTime;
-    } else if (textHasExplicitTime(payload)) {
-      const timeOnly = applyTimeToAppointmentDay(
-        new Date(target.dateTime),
-        payload,
-      );
-      if (timeOnly) {
-        patch.dateTime = timeOnly.dateTime;
-        hasTime = true;
-      }
-    }
+  if (!textHasExplicitTime(payload)) {
+    return { patch, timeMentionedInMessage: false };
   }
 
-  return { patch, hasTime };
+  const timeOnly = applyTimeToAppointmentDay(
+    new Date(target.dateTime),
+    payload,
+  );
+  if (timeOnly) {
+    patch.dateTime = timeOnly.dateTime;
+    return { patch, timeMentionedInMessage: true };
+  }
+
+  return { patch, timeMentionedInMessage: false };
 }

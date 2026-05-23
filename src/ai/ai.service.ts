@@ -1,6 +1,10 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import {
+  parseReconcileUpdateResponse,
+  type ReconcileUpdateResult,
+} from './appointment-update-reconcile';
 import { parseNotesMergeResponse } from './notes-merge';
 import {
   mergeWakeAppointmentExtraction,
@@ -56,8 +60,8 @@ export class AiService {
     mode: 'create' | 'update',
   ): Promise<WakeAppointmentFields> {
     const openai = this.ensureClient();
-    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title, location, notes, requirements (array of { description }). Do NOT include dateTime. Put transportation and companions in notes when mentioned. Use Hebrew. Omit unknown fields.`;
-    const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with ONLY new requirements if any (array of { description }). Do NOT include notes — notes are merged separately. Omit title and location unless explicitly changed in this message. If the user only sets a time, return {}. Hebrew only.`;
+    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type, e.g. "ביקורת קרדיו אונקולוגיה", "פט סיטי" — never bare "תור" if details exist), location (hospital/clinic name when mentioned), notes, requirements (array of { description }). Do NOT include dateTime. Put transportation and companions in notes. Hebrew only.`;
+    const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with ONLY new requirements if any (array of { description }). Do NOT include notes. Hebrew only.`;
     const completion = await openai.chat.completions.create({
       model: this.model,
       response_format: { type: 'json_object' },
@@ -80,6 +84,56 @@ export class AiService {
       throw new ServiceUnavailableException('פלט המודל אינו JSON תקין');
     }
     return mergeWakeAppointmentExtraction(parsed, text);
+  }
+
+  /**
+   * Decide title/location corrections and whether notes need merging.
+   * Does NOT return dateTime — the server handles time only when explicitly stated.
+   */
+  async reconcileAppointmentUpdate(
+    existing: {
+      title: string;
+      location: string;
+      notes: string;
+      dateTimeIso: string;
+    },
+    userMessage: string,
+  ): Promise<ReconcileUpdateResult> {
+    const openai = this.ensureClient();
+    const completion = await openai.chat.completions.create({
+      model: this.model,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You help update ONE existing medical appointment (${this.patientLabel}) from a Hebrew WhatsApp message.
+Return JSON only:
+{
+  "title": optional string — visit type if user names/corrects it (e.g. ביקורת קרדיו אונקולוגיה),
+  "location": optional string — hospital/clinic if user names/corrects it,
+  "mergeNotes": boolean — true if message adds/changes companions, transport, meals, or prep notes; false if ONLY time/title/location
+}
+Rules:
+- If user clarifies what the appointment IS (ביקורת…, פט סיטי…), set title even if existing title was generic "תור".
+- If user names a place (איכילוב…), set location even if existing was "ייקבע".
+- Never output bare "תור" or "ייקבע" as improvements.
+- Do NOT output dateTime or notes text here.`,
+        },
+        {
+          role: 'user',
+          content: `EXISTING:\ntitle: ${existing.title}\nlocation: ${existing.location}\ndateTime: ${existing.dateTimeIso}\nnotes: ${existing.notes || '(ריק)'}\n\nMESSAGE:\n${userMessage}`,
+        },
+      ],
+    });
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) {
+      return { mergeNotes: false };
+    }
+    try {
+      return parseReconcileUpdateResponse(JSON.parse(raw) as unknown);
+    } catch {
+      return { mergeNotes: false };
+    }
   }
 
   /**

@@ -24,11 +24,16 @@ import {
   parseAppointmentWhenFromText,
   textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
-import { buildAdditiveUpdatePatch } from '../common/utils/appointment-update-patch';
+import { buildSchedulePatch } from '../common/utils/appointment-update-patch';
+import {
+  inferWakeAppointmentFields,
+  isLikelyDateOnlyTime,
+  isPlaceholderLocation,
+  isPlaceholderTitle,
+} from '../common/utils/wake-appointment-fields';
 import {
   looksLikeAddingToExisting,
   looksLikeNewAppointment,
-  looksLikeScheduleOnlyUpdate,
 } from './whatsapp-wake-intent';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
@@ -182,8 +187,15 @@ export class WhatsappService {
       return 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
     }
 
-    const title = extracted.title?.trim() || 'תור';
-    const location = extracted.location?.trim() || 'ייקבע';
+    const inferred = inferWakeAppointmentFields(payload);
+    const title =
+      extracted.title?.trim() ||
+      inferred.title ||
+      'תור';
+    const location =
+      extracted.location?.trim() ||
+      inferred.location ||
+      'ייקבע';
     const created = await this.appointments.create({
       title,
       dateTime: extracted.dateTime,
@@ -225,16 +237,55 @@ export class WhatsappService {
     }
     const target = lookup.appointment;
 
-    const wantsTimeChange =
-      textHasExplicitTime(payload) ||
-      looksLikeScheduleOnlyUpdate(payload);
-    const wantsNotesAdd = looksLikeAddingToExisting(payload);
+    const reconciled = await this.ai.reconcileAppointmentUpdate(
+      {
+        title: target.title,
+        location: target.location,
+        notes: target.notes ?? '',
+        dateTimeIso: new Date(target.dateTime).toISOString(),
+      },
+      payload,
+    );
 
-    const { patch, hasTime } = buildAdditiveUpdatePatch(payload, target, {
-      wantsTimeChange,
-    });
+    const inferred = inferWakeAppointmentFields(payload);
+    const patch: {
+      title?: string;
+      dateTime?: string;
+      location?: string;
+      notes?: string;
+    } = {};
 
-    if (wantsNotesAdd) {
+    const { patch: schedulePatch, timeMentionedInMessage } =
+      buildSchedulePatch(payload, target);
+    Object.assign(patch, schedulePatch);
+
+    const titleCandidate =
+      reconciled.title || inferred.title || extracted.title?.trim();
+    if (titleCandidate && !isPlaceholderTitle(titleCandidate)) {
+      if (
+        isPlaceholderTitle(target.title) ||
+        (reconciled.title && reconciled.title !== target.title)
+      ) {
+        patch.title = titleCandidate;
+      }
+    }
+
+    const locationCandidate =
+      reconciled.location ||
+      inferred.location ||
+      extracted.location?.trim();
+    if (locationCandidate && !isPlaceholderLocation(locationCandidate)) {
+      if (
+        isPlaceholderLocation(target.location) ||
+        (reconciled.location && reconciled.location !== target.location)
+      ) {
+        patch.location = locationCandidate;
+      }
+    }
+
+    const shouldMergeNotes =
+      reconciled.mergeNotes || looksLikeAddingToExisting(payload);
+    if (shouldMergeNotes) {
       const merged = await this.ai.mergeAppointmentNotes(
         target.notes ?? '',
         payload,
@@ -244,7 +295,12 @@ export class WhatsappService {
       }
     }
 
-    if (!patch.dateTime && !patch.notes) {
+    if (
+      !patch.dateTime &&
+      !patch.notes &&
+      !patch.title &&
+      !patch.location
+    ) {
       return 'לא זיהיתי מה להוסיף. נסו: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ש…';
     }
 
@@ -258,13 +314,10 @@ export class WhatsappService {
       }
     }
 
-    const displayHasTime =
-      hasTime || textHasExplicitTime(payload);
-    const when = formatAppointmentWhenHebrew(
-      updated.dateTime,
-      displayHasTime,
-    );
-    const timeNote = displayHasTime ? '' : ' (שעה לא צוינה)';
+    const showTime =
+      timeMentionedInMessage || !isLikelyDateOnlyTime(updated.dateTime);
+    const when = formatAppointmentWhenHebrew(updated.dateTime, showTime);
+    const timeNote = showTime ? '' : ' (שעה לא צוינה)';
     const addedNotes = patch.notes && patch.notes !== target.notes;
     const suffix = addedNotes ? ' (הערות עודכנו)' : '';
     return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
