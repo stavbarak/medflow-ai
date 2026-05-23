@@ -41,6 +41,10 @@ import {
   stripWakeWord,
 } from './whatsapp-wake-intent';
 
+import {
+  extractGroupWebhookEvents,
+  formatGroupWebhookEvent,
+} from './whatsapp-group-webhook';
 import { extractInboundWhatsappMessages } from './whatsapp-inbound';
 import type { WhatsappSendTarget } from './whatsapp-send-target';
 import { individualTarget } from './whatsapp-send-target';
@@ -96,6 +100,9 @@ export class WhatsappService {
     body: unknown,
   ): Promise<{ status: string }> {
     this.verifySignature(rawBody, signature);
+    for (const event of extractGroupWebhookEvents(body)) {
+      this.logger.log(formatGroupWebhookEvent(event));
+    }
     const messages = extractInboundWhatsappMessages(body);
     if (messages.length === 0) {
       this.logger.debug('WhatsApp webhook: no text messages in payload');

@@ -1,107 +1,123 @@
 # WhatsApp Groups API — setup (OBA)
 
-MedFlowAI can reply **in the family group** (not only in private chat) once you complete Meta’s Groups flow. Your code already uses the wake word `חנטריש` so normal group chatter is ignored.
+MedFlowAI replies **in the family group** once you complete Meta’s Groups flow. Wake word `חנטריש` keeps normal group chatter ignored.
 
 **Official docs:** [Get started with Groups API](https://developers.facebook.com/documentation/business-messaging/whatsapp/groups/get-started) · [Group messaging](https://developers.facebook.com/documentation/business-messaging/whatsapp/groups/groups-messaging/)
 
 ---
 
-## Important: not a normal WhatsApp group
+## Step-by-step (do in order)
 
-You **cannot** add the business number to an existing family group like a friend.
+### 1. Meta webhooks
 
-Meta’s model:
+Developer Console → WhatsApp → Configuration → subscribe:
 
-1. **You create an API group** (invite-only, max **8** participants).
-2. You send each family member an **invite link** (approved template).
-3. They **join** that group.
-4. Messages with `group_id` hit your webhook; replies use `recipient_type: "group"`.
-
-1:1 chat with the business number still works for OTP / private use.
-
----
-
-## What we implemented in code
-
-| Piece | Behavior |
-|--------|----------|
-| **Inbound webhook** | Reads `group_id` on messages; `from` = who sent |
-| **Outbound** | Replies to the **same** place (group or DM): `recipient_type: group` + group id |
-| **OTP / password reset** | Still **1:1 only** (templates to a phone number) |
-
-After deploy, redeploy Railway with the latest commit.
-
----
-
-## Your checklist (Meta + family)
-
-### 1. App webhooks (Meta Developer Console)
-
-On your app → **WhatsApp** → **Configuration** → Webhook, ensure subscribed:
-
-- `messages` (already required)
+- `messages`
 - `group_lifecycle_update`
 - `group_participants_update`
 - `group_settings_update`
 - `group_status_update`
 
-Callback URL stays: `https://<your-railway-host>/api/whatsapp`
+Callback: `https://<your-railway-host>/api/whatsapp`
 
-### 2. Create the group (API)
+### 2. Deploy latest code
 
-Use [Create Group](https://developers.facebook.com/documentation/business-messaging/whatsapp/groups/reference#create-group) with your `WHATSAPP_PHONE_NUMBER_ID` and access token.
+Railway must run the build with **group webhook logging** and **group reply** support (`recipient_type: group`).
 
-You’ll get a webhook with **`invite_link`**. Save the **`group_id`** from lifecycle webhooks — you need it for debugging.
+### 3. Create the group (CLI)
 
-### 3. Invite family (template)
+From the repo root with `.env` containing `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`:
 
-1. [Template Library](https://business.facebook.com/wa/manage/template-library) → **Group invite link** template → submit for approval.
-2. Send invite via [Send Group Invite Link Template Message](https://developers.facebook.com/documentation/business-messaging/whatsapp/groups/reference#send-group-invite-link-template-message).
-3. Each person opens the link and **joins** (max 8).
+```bash
+npm run whatsapp:create-group
+```
 
-### 4. Test in the group
+Optional custom name:
 
-In the **API group** (not your old family group):
+```bash
+npm run whatsapp:create-group -- "חנטריש — תורים משפחתיים" "תיאום תורים למשפחה"
+```
 
-- `חנטריש` → list appointments  
-- `חנטריש לאבא יש תור ב-…` → create  
-- `חנטריש מי מלווה…` → question  
+Meta returns `request_id` immediately. Within seconds, **Railway logs** show:
 
-Bot should answer **in the group thread**.
+```text
+WhatsApp group ready — subject="..." group_id=... invite_link=https://chat.whatsapp.com/...
+```
 
-### 5. Railway env (unchanged unless you want defaults)
+You can also list groups later:
 
-Existing vars are enough:
+```bash
+npm run whatsapp:list-groups
+```
 
-- `WHATSAPP_ACCESS_TOKEN`
-- `WHATSAPP_PHONE_NUMBER_ID`
-- `WHATSAPP_VERIFY_TOKEN`
-- `WHATSAPP_APP_SECRET`
+### 4. Approve invite template (Meta UI, one-time)
 
-No extra env var is required for groups — the server learns `group_id` from each inbound message.
+1. [Template Library](https://business.facebook.com/wa/manage/template-library)
+2. **Group invite link** → pick template → name it (e.g. `medflow_family_group_invite`) → Submit
+3. Wait for approval (can take up to ~24h)
+
+Add to `.env` / Railway:
+
+```env
+WHATSAPP_GROUP_INVITE_TEMPLATE_NAME=medflow_family_group_invite
+WHATSAPP_GROUP_INVITE_TEMPLATE_LANG=he
+```
+
+### 5. Invite family (CLI)
+
+Use `group_id` from step 3 logs. One phone per family member (max **8** in the group):
+
+```bash
+npm run whatsapp:send-group-invite -- <GROUP_ID> 972521234567 972523211743
+```
+
+Each person opens the invite in WhatsApp and **joins**.
+
+Alternative: share `invite_link` from logs manually (template is nicer for people who never messaged the business number).
+
+### 6. Test in the group
+
+In the **new API group**:
+
+- `חנטריש` → list appointments
+- `חנטריש לאבא יש תור ב-14.7 בשעה 9:30` → create
+- `חנטריש מי מלווה מחר?` → Q&A
+
+Bot answers **in the group**. Logs: `Wake message from … (group)`.
 
 ---
 
-## Limits to plan for
+## What the code does
 
-- **8 participants** max per API group (split or use 1:1 for larger circles).
-- **Per-message pricing** for group messages.
-- No interactive buttons / calls in groups (text is fine).
-- **One** Cloud API business per group.
+| Piece | Behavior |
+|--------|----------|
+| **Inbound** | Reads `group_id`; `from` = sender |
+| **Outbound** | Replies in same thread (group or DM) |
+| **Group webhooks** | Logs `invite_link`, joins, errors to Railway |
+| **OTP / reset** | Still 1:1 only |
 
----
-
-## If something fails
-
-| Symptom | Likely cause |
-|---------|----------------|
-| No webhook when someone writes in group | User didn’t join via invite link; or group webhook fields not subscribed |
-| Bot replies in DM but not in group | Old deploy without `recipient_type: group` — redeploy |
-| `recipient_type and to type do not match` | Sending to phone number instead of `group_id` — fixed in latest code |
-| Invite won’t send | Group invite template not approved |
-
-Check Railway logs for `Wake message from … (group)` after someone writes `חנטריש` in the API group.
+No `WHATSAPP_GROUP_ID` env needed — each message carries its `group_id`.
 
 ---
 
-*See also: [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md) · [Stage 4 — WhatsApp](stage-4-whatsapp-module.md)*
+## Limits
+
+- **8 participants** max per API group
+- Per-message pricing for group messages
+- Cannot add bot to an old regular WhatsApp group — this is a **new** Meta-managed group
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Create group API fails | Confirm OBA + `whatsapp_business_messaging` permission on token |
+| No `invite_link` in logs | Subscribe to `group_lifecycle_update`; check webhook URL |
+| Invite send fails | Template not approved; wrong `WHATSAPP_GROUP_INVITE_TEMPLATE_NAME` |
+| Bot silent in group | Family didn’t join via invite; redeploy latest code |
+| Replies only in DM | Old deploy without group send support |
+
+---
+
+*See also: [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md)*

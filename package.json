@@ -23,7 +23,10 @@
     "prisma:seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts",
     "prisma:reset": "prisma migrate reset --force",
     "web:dev": "npm run dev --prefix web",
-    "web:build": "npm run build --prefix web"
+    "web:build": "npm run build --prefix web",
+    "whatsapp:create-group": "ts-node --project tsconfig.json scripts/whatsapp-create-group.ts",
+    "whatsapp:list-groups": "ts-node --project tsconfig.json scripts/whatsapp-list-groups.ts",
+    "whatsapp:send-group-invite": "ts-node --project tsconfig.json scripts/whatsapp-send-group-invite.ts"
   },
   "prisma": {
     "seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts"
