@@ -112,11 +112,32 @@ No `WHATSAPP_GROUP_ID` env needed — each message carries its `group_id`.
 
 | Symptom                  | Fix                                                                |
 | ------------------------ | ------------------------------------------------------------------ |
-| Create group API fails   | Confirm OBA + `whatsapp_business_messaging` permission on token    |
+| **400 / code 131215**    | Phone number not eligible for Groups — see section below           |
+| Create group API fails   | Run `npm run whatsapp:diagnose-groups`; check token permissions    |
 | No `invite_link` in logs | Subscribe to `group_lifecycle_update`; check webhook URL           |
 | Invite send fails        | Template not approved; wrong `WHATSAPP_GROUP_INVITE_TEMPLATE_NAME` |
 | Bot silent in group      | Family didn’t join via invite; redeploy latest code                |
 | Replies only in DM       | Old deploy without group send support                              |
+
+### Error 131215 (“not eligible to access Groups APIs”)
+
+Meta message:
+
+```text
+(#131215) This phone number is not eligible to access Groups APIs
+```
+
+**Meaning:** The `WHATSAPP_PHONE_NUMBER_ID` in `.env` / Railway is **not** enabled for Groups — even if you believe the business has OBA.
+
+**Checklist:**
+
+1. [WhatsApp Manager](https://business.facebook.com/wa/manage/home/) → **Phone numbers** → open your business line.
+2. Confirm **Official Business Account** (OBA badge) is on **that phone number**, not only on the business name.
+3. Developer Console → WhatsApp → API Setup → re-copy **Phone number ID** into `WHATSAPP_PHONE_NUMBER_ID`.
+4. Groups API does **not** apply to some **Coexistence / Business-app-only / multi-solution** numbers — you need a standard **Cloud API** number with OBA.
+5. If OBA was approved recently, wait a few hours and run `npm run whatsapp:diagnose-groups`.
+
+Until this is fixed, family can still use **private chat** with the business number (`חנטריש` in 1:1).
 
 ---
 

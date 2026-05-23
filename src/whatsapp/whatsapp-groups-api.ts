@@ -4,6 +4,11 @@ import {
   readWhatsappGraphCredentials,
   type WhatsappGraphCredentials,
 } from './whatsapp-graph.config';
+import { formatWhatsappGraphError } from './whatsapp-graph.errors';
+
+function throwGraphError(err: unknown): never {
+  throw new Error(formatWhatsappGraphError(err));
+}
 
 export type CreateWhatsAppGroupInput = {
   subject: string;
@@ -32,29 +37,45 @@ export async function createWhatsAppGroup(
   input: CreateWhatsAppGroupInput,
 ): Promise<CreateWhatsAppGroupResult> {
   const creds = readWhatsappGraphCredentials();
-  const { data } = await axios.post<{ request_id?: string }>(
-    graphUrl(`/${creds.phoneNumberId}/groups`),
-    {
-      messaging_product: 'whatsapp',
-      subject: input.subject.trim(),
-      ...(input.description ? { description: input.description.trim() } : {}),
-      join_approval_mode: input.joinApprovalMode ?? 'auto_approve',
-    },
-    { headers: authHeaders(creds) },
-  );
-  if (!data.request_id) {
-    throw new Error('Create group response missing request_id');
+  const subject = input.subject.trim();
+  if (!subject) {
+    throw new Error('Group subject is required');
   }
-  return { requestId: data.request_id };
+  const body: Record<string, string> = {
+    messaging_product: 'whatsapp',
+    subject,
+    join_approval_mode: input.joinApprovalMode ?? 'auto_approve',
+  };
+  if (input.description?.trim()) {
+    body.description = input.description.trim();
+  }
+  try {
+    const { data } = await axios.post<{ request_id?: string }>(
+      graphUrl(`/${creds.phoneNumberId}/groups`),
+      body,
+      { headers: authHeaders(creds) },
+    );
+    if (!data.request_id) {
+      throw new Error('Create group response missing request_id');
+    }
+    return { requestId: data.request_id };
+  } catch (err) {
+    throwGraphError(err);
+  }
 }
 
 export async function listActiveWhatsAppGroups(): Promise<WhatsAppGroupSummary[]> {
   const creds = readWhatsappGraphCredentials();
-  const { data } = await axios.get<{
+  let data: {
     data?: { groups?: Array<{ id?: string; subject?: string; created_at?: string }> };
-  }>(graphUrl(`/${creds.phoneNumberId}/groups`), {
-    headers: authHeaders(creds),
-  });
+  };
+  try {
+    ({ data } = await axios.get(graphUrl(`/${creds.phoneNumberId}/groups`), {
+      headers: authHeaders(creds),
+    }));
+  } catch (err) {
+    throwGraphError(err);
+  }
   return (data.data?.groups ?? [])
     .filter((g): g is { id: string; subject: string; created_at?: string } =>
       Boolean(g.id && g.subject),
@@ -74,28 +95,32 @@ export async function sendGroupInviteTemplate(input: {
 }): Promise<void> {
   const creds = readWhatsappGraphCredentials();
   const to = input.toPhone.replace(/\D/g, '');
-  await axios.post(
-    graphUrl(`/${creds.phoneNumberId}/messages`),
-    {
-      messaging_product: 'whatsapp',
-      to,
-      type: 'template',
-      template: {
-        name: input.templateName,
-        language: { code: input.templateLang ?? 'he' },
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              {
-                type: 'group_id',
-                group_id: input.groupId,
-              },
-            ],
-          },
-        ],
+  try {
+    await axios.post(
+      graphUrl(`/${creds.phoneNumberId}/messages`),
+      {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: input.templateName,
+          language: { code: input.templateLang ?? 'he' },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                {
+                  type: 'group_id',
+                  group_id: input.groupId,
+                },
+              ],
+            },
+          ],
+        },
       },
-    },
-    { headers: authHeaders(creds) },
-  );
+      { headers: authHeaders(creds) },
+    );
+  } catch (err) {
+    throwGraphError(err);
+  }
 }

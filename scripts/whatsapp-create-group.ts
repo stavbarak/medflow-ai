@@ -38,5 +38,17 @@ async function main() {
 
 main().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
+  const msg = err instanceof Error ? err.message : '';
+  if (msg.includes('131215')) {
+    console.error(
+      '\nThis number is not eligible for Groups API. Confirm Official Business Account (OBA) on the number in WhatsApp Manager.',
+    );
+  } else if (msg.includes('131211')) {
+    console.error('\nGroup create limit reached for this business number.');
+  } else if (/not registered|131031/i.test(msg)) {
+    console.error(
+      '\nPhone may not be registered for Cloud API. In WhatsApp Manager, complete number verification and API registration.',
+    );
+  }
   process.exit(1);
 });
