@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PhoneAllowlistService } from '../../phone-allowlist/phone-allowlist.service';
 import { JwtPayload } from '../../common/types/jwt-payload.interface';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 
@@ -11,6 +12,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly allowlist: PhoneAllowlistService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -24,6 +26,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
     });
     if (!user) {
+      throw new UnauthorizedException('משתמש לא נמצא');
+    }
+    if (!(await this.allowlist.isAllowed(user.phoneNumber))) {
       throw new UnauthorizedException('משתמש לא נמצא');
     }
     return {

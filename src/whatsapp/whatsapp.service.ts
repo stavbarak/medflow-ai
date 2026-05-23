@@ -48,6 +48,12 @@ import {
 import { extractInboundWhatsappMessages } from './whatsapp-inbound';
 import type { WhatsappSendTarget } from './whatsapp-send-target';
 import { individualTarget } from './whatsapp-send-target';
+import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
+import {
+  PHONE_NOT_ON_ALLOWLIST_HE,
+  PHONE_NOT_REGISTERED_WHATSAPP_HE,
+} from '../phone-allowlist/phone-allowlist.messages';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class WhatsappService {
@@ -59,6 +65,8 @@ export class WhatsappService {
     private readonly appointments: AppointmentsService,
     private readonly requirements: RequirementsService,
     private readonly query: QueryService,
+    private readonly allowlist: PhoneAllowlistService,
+    private readonly users: UsersService,
   ) {}
 
   verifyWebhook(
@@ -130,8 +138,21 @@ export class WhatsappService {
       return;
     }
 
+    if (!(await this.allowlist.isAllowed(message.senderWaId))) {
+      this.logger.debug(`Rejected unknown phone ${message.senderWaId}`);
+      await this.safeSend(message.replyTo, PHONE_NOT_ON_ALLOWLIST_HE);
+      return;
+    }
+
+    const user = await this.users.findByPhone(message.senderWaId);
+    if (!user) {
+      this.logger.debug(`Allowed but unregistered phone ${message.senderWaId}`);
+      await this.safeSend(message.replyTo, PHONE_NOT_REGISTERED_WHATSAPP_HE);
+      return;
+    }
+
     this.logger.debug(
-      `Wake message from ${message.senderWaId} (${message.replyTo.type})`,
+      `Wake message from ${message.senderWaId} (${message.replyTo.type}) user=${user.id}`,
     );
     await this.replyWakeWord(message.replyTo, text);
   }

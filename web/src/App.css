@@ -88,6 +88,13 @@
   color: #334155;
 }
 
+.field-hint {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #64748b;
+  line-height: 1.35;
+}
+
 .form input,
 textarea {
   padding: 0.55rem 0.65rem;

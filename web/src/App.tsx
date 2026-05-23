@@ -205,10 +205,15 @@ export default function App() {
               <input
                 value={phone}
                 onChange={(ev) => setPhone(ev.target.value)}
-                placeholder="972501234567"
+                placeholder="0521234567"
                 required
                 autoComplete="tel"
+                inputMode="tel"
+                dir="ltr"
               />
+              <span className="field-hint">
+                מספר ישראלי בלי מקף — למשל 0521234567 (גם 972… מתקבל)
+              </span>
             </label>
             {tab === 'reset' && (
               <label>

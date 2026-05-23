@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Family members permitted to register and use WhatsApp (admin adds rows or ALLOWED_PHONE_NUMBERS env).
+model AllowedPhone {
+  id          String   @id @default(uuid())
+  phoneNumber String   @unique
+  label       String?
+  createdAt   DateTime @default(now())
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String

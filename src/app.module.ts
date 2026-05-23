@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { PhoneAllowlistModule } from './phone-allowlist/phone-allowlist.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AppointmentsModule } from './appointments/appointments.module';
@@ -15,6 +16,7 @@ import { RootController } from './root.controller';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    PhoneAllowlistModule,
     AuthModule,
     UsersModule,
     AppointmentsModule,

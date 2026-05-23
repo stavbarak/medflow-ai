@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
+import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -43,10 +44,12 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly whatsapp: WhatsappService,
+    private readonly allowlist: PhoneAllowlistService,
   ) {}
 
   async register(dto: RegisterDto) {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
+    await this.allowlist.assertAllowed(phoneNumber);
     const existing = await this.prisma.user.findUnique({
       where: { phoneNumber },
     });
@@ -70,6 +73,9 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
+    if (!(await this.allowlist.isAllowed(user.phoneNumber))) {
+      throw new UnauthorizedException('פרטי התחברות שגויים');
+    }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
@@ -89,7 +95,7 @@ export class AuthService {
     }
 
     const user = await this.findUserByPhone(dto.phoneNumber);
-    if (!user) {
+    if (!user || !(await this.allowlist.isAllowed(phoneNumber))) {
       return { message: FORGOT_PASSWORD_ACK_UNKNOWN, codeSent: false };
     }
 
@@ -131,7 +137,7 @@ export class AuthService {
   async resetPassword(dto: ResetPasswordDto) {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const user = await this.findUserByPhone(dto.phoneNumber);
-    if (!user) {
+    if (!user || !(await this.allowlist.isAllowed(phoneNumber))) {
       throw new BadRequestException('קוד אימות לא תקין או שפג תוקפו');
     }
 

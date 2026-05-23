@@ -1,10 +1,26 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeIsraeliPhone } from '../common/utils/phone';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findByPhone(phoneInput: string) {
+    const normalized = normalizeIsraeliPhone(phoneInput.trim());
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [{ phoneNumber: normalized }, { phoneNumber: phoneInput.trim() }],
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        role: true,
+      },
+    });
+  }
 
   async findOne(id: string) {
     return this.prisma.user.findUnique({
