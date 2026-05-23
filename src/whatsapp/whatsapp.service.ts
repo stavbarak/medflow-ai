@@ -26,7 +26,7 @@ import {
   textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
 import {
-  looksLikeAppointmentUpdate,
+  looksLikeNewAppointment,
   looksLikeNotesUpdate,
   looksLikeScheduleOnlyUpdate,
 } from './whatsapp-wake-intent';
@@ -177,15 +177,8 @@ export class WhatsappService {
   }
 
   private async handleWakeCreate(payload: string): Promise<string> {
-    if (looksLikeAppointmentUpdate(payload)) {
-      return this.handleWakeUpdate(payload);
-    }
-
     const extracted = await this.ai.extractAppointmentFromText(payload);
     if (!extracted.dateTime) {
-      if (textHasExplicitTime(payload) || parseAppointmentWhenFromText(payload)) {
-        return this.handleWakeUpdate(payload);
-      }
       return 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
     }
 
@@ -215,12 +208,19 @@ export class WhatsappService {
   }
 
   private async handleWakeUpdate(payload: string): Promise<string> {
+    if (looksLikeNewAppointment(payload)) {
+      return this.handleWakeCreate(payload);
+    }
+
     const extracted = await this.ai.extractAppointmentFromText(payload);
     const lookup = await this.resolveAppointmentForUpdate(payload);
     if (lookup.status === 'ambiguous') {
       return formatAmbiguousUpdatePromptHebrew(lookup.appointments);
     }
     if (lookup.status === 'unresolved') {
+      if (looksLikeNewAppointment(payload) || parseAppointmentWhenFromText(payload)) {
+        return this.handleWakeCreate(payload);
+      }
       return 'לא מצאתי תור לעדכון. נסו לציין תאריך (למשל 25.5) או שם מרפאה.';
     }
     const target = lookup.appointment;
@@ -258,13 +258,7 @@ export class WhatsappService {
       patch.location = extracted.location.trim();
     }
     if (looksLikeNotesUpdate(payload) && extracted.notes?.trim()) {
-      const incoming = extracted.notes.trim();
-      const prev = target.notes?.trim();
-      if (!prev) {
-        patch.notes = incoming;
-      } else if (!prev.includes(incoming)) {
-        patch.notes = `${prev}\n${incoming}`;
-      }
+      patch.notes = extracted.notes.trim();
     }
 
     if (
@@ -299,6 +293,7 @@ export class WhatsappService {
       if (onDay.length > 0) {
         return resolveUpdateTarget(payload, onDay);
       }
+      return { status: 'unresolved' as const };
     }
 
     const all = await this.appointments.findAll();

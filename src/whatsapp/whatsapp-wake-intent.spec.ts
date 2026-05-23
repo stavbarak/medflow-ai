@@ -1,6 +1,7 @@
 import {
   classifyWakePayload,
   looksLikeAppointmentUpdate,
+  looksLikeNewAppointment,
   looksLikeNotesUpdate,
   looksLikeScheduleOnlyUpdate,
 } from './whatsapp-wake-intent';
@@ -18,6 +19,22 @@ describe('classifyWakePayload', () => {
         'לאבא יש תור במרפאה הפליאטיבית באיכילוב ביום שני ה-25.5',
       ),
     ).toBe('create');
+  });
+
+  it('detects create for "תוסיף תור" (not update)', () => {
+    const payload =
+      'תוסיף תור לאבא פט סיטי ב-14.7 באיכילוב בשעה 11:00. שירי תיקח ותחזיר אותו';
+    expect(looksLikeNewAppointment(payload)).toBe(true);
+    expect(looksLikeAppointmentUpdate(payload)).toBe(false);
+    expect(classifyWakePayload(payload)).toBe('create');
+  });
+
+  it('detects create for "יש לאבא תור ב-27.5"', () => {
+    const payload =
+      'יש לאבא תור ב-27.5 לעירוי קיטרודה באיכילוב בשעה 12:00. יגיע במונית וסתיו תהיה איתו שם';
+    expect(looksLikeNewAppointment(payload)).toBe(true);
+    expect(looksLikeAppointmentUpdate(payload)).toBe(false);
+    expect(classifyWakePayload(payload)).toBe('create');
   });
 
   it('treats time-only follow-up as update (screenshot case)', () => {
@@ -41,5 +58,10 @@ describe('classifyWakePayload', () => {
     expect(
       looksLikeNotesUpdate('תוסיף להערות שאבא יגיע במונית ועדי איתו'),
     ).toBe(true);
+  });
+
+  it('does not treat new booking notes as a notes-only update', () => {
+    const payload = 'יש לאבא תור ב-27.5. יגיע במונית';
+    expect(looksLikeNotesUpdate(payload)).toBe(false);
   });
 });

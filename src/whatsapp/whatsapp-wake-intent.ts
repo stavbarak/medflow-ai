@@ -16,26 +16,37 @@ const CANCEL_RE =
 const UPDATE_RE =
   /(התבלבל|תתקן|תתקני|תשנה|תשני|תעדכן|עדכן|תקן|תקני|לא נכון|תיקון|לתקן|לשנות|לעדכן|שנה את|שני את)/iu;
 
-const NEW_APPOINTMENT_RE =
-  /(יש תור|תור חדש|לקבוע|לתאם|הוסף תור|נוסף תור|נקבע תור)/iu;
+/** Booking a new appointment (not editing an existing one). */
+export const NEW_APPOINTMENT_RE =
+  /(?:יש\s+(?:ל(?:אבא|אמא|מטופל)\s+)?תור|(?:תוסיף|תוסיפי|הוסף|הוסיפי|נוסף)\s+תור|תור\s+חדש|לקבוע|לתאם|נקבע(?:\s+תור)?)/iu;
 
 const DATE_HINT_RE = /\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?/u;
 
-/** Refers to an appointment that already exists (not booking a new one). */
+/**
+ * Refers to an appointment already in the system — not "יש תור ב-14.7" (new booking).
+ * Requires definite form (התור) or "תור של …".
+ */
 const EXISTING_APPOINTMENT_RE =
-  /(?:^|[,\s])(?:ה)?תור\s+(?:ב|במ|ב-|ל|של|הוא|היא)|התור\s+(?:הוא|היא|בשעה|ב-|במ)/iu;
+  /(?:^|[,\s])התור\s+(?:ב|במ|ב-|ל|של|הוא|היא|בשעה)|תור\s+של(?:\s+ה)?-?|(?:^|[,\s])התור\s+הוא/iu;
 
 const CLINIC_OR_SITE_RE =
   /(מרפאה|איכילוב|בית חולים|בית-חולים|מכון|קופת|הדסה|שיבא|סורוקה|אסף|רמבם)/iu;
 
 const FIELD_UPDATE_RE =
-  /(בשעה|השעה|הוא בשעה|היא בשעה|מיקום|במקום|הערות|מלווה|ילווה|מגיע)/iu;
+  /(בשעה|השעה|הוא בשעה|היא בשעה|מיקום|במקום|הערות)/iu;
 
 const NOTES_UPDATE_RE =
-  /(הערה|הערות|תוסיף|תוסיפי|להוסיף|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|יגיע|מגיע|נהג|נהגת|במונית|ברכב)/iu;
+  /(הערה|הערות|תוסיף להערות|תוסיפי להערות|להוסיף להערות|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|נהג|נהגת)/iu;
 
-/** User is adding or changing free-text notes (not just time/date). */
+export function looksLikeNewAppointment(payload: string): boolean {
+  return NEW_APPOINTMENT_RE.test(payload);
+}
+
+/** User is adding or changing free-text notes on an existing appointment. */
 export function looksLikeNotesUpdate(payload: string): boolean {
+  if (looksLikeNewAppointment(payload)) {
+    return false;
+  }
   return NOTES_UPDATE_RE.test(payload);
 }
 
@@ -52,15 +63,12 @@ export function looksLikeScheduleOnlyUpdate(payload: string): boolean {
   );
 }
 
-/** Follow-up edits: add time/notes to an existing appointment without repeating the date. */
+/** Follow-up edits to an appointment that is already in the system. */
 export function looksLikeAppointmentUpdate(payload: string): boolean {
-  if (UPDATE_RE.test(payload)) {
-    return true;
-  }
-  if (NEW_APPOINTMENT_RE.test(payload)) {
+  if (looksLikeNewAppointment(payload)) {
     return false;
   }
-  if (DATE_HINT_RE.test(payload) && UPDATE_RE.test(payload)) {
+  if (UPDATE_RE.test(payload)) {
     return true;
   }
   if (DATE_HINT_RE.test(payload) && /(?:תור|התור)\s+של/iu.test(payload)) {
@@ -87,13 +95,16 @@ export function classifyWakePayload(payload: string): WakeIntent {
   if (CANCEL_RE.test(payload)) {
     return 'cancel';
   }
+  if (looksLikeNewAppointment(payload)) {
+    return 'create';
+  }
   if (looksLikeAppointmentUpdate(payload)) {
     return 'update';
   }
   if (looksLikeQuestion(payload)) {
     return 'question';
   }
-  if (NEW_APPOINTMENT_RE.test(payload) || DATE_HINT_RE.test(payload)) {
+  if (DATE_HINT_RE.test(payload)) {
     return 'create';
   }
   return 'question';
