@@ -7,7 +7,7 @@ async function main() {
   const subject =
     process.argv[2]?.trim() ||
     process.env.WHATSAPP_GROUP_SUBJECT?.trim() ||
-    'חנטריש — תורים משפחתיים';
+    'חנטריש — תורים של אבא';
   const description =
     process.argv[3]?.trim() ||
     process.env.WHATSAPP_GROUP_DESCRIPTION?.trim() ||
@@ -22,12 +22,18 @@ async function main() {
   console.log('Group creation submitted.');
   console.log(`request_id: ${result.requestId}`);
   console.log('');
-  console.log('Next: watch Railway logs (or Meta webhook) for group_lifecycle_update');
+  console.log(
+    'Next: watch Railway logs (or Meta webhook) for group_lifecycle_update',
+  );
   console.log('with invite_link and group_id — usually within seconds.');
   console.log('');
   console.log('Then invite family:');
-  console.log('  npm run whatsapp:send-group-invite -- <GROUP_ID> 972521234567 ...');
-  console.log('(requires approved WHATSAPP_GROUP_INVITE_TEMPLATE_NAME in .env)');
+  console.log(
+    '  npm run whatsapp:send-group-invite -- <GROUP_ID> 972521234567 ...',
+  );
+  console.log(
+    '(requires approved WHATSAPP_GROUP_INVITE_TEMPLATE_NAME in .env)',
+  );
 }
 
 main().catch((err) => {

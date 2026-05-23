@@ -35,7 +35,7 @@ npm run whatsapp:create-group
 Optional custom name:
 
 ```bash
-npm run whatsapp:create-group -- "חנטריש — תורים משפחתיים" "תיאום תורים למשפחה"
+npm run whatsapp:create-group -- "חנטריש — תורים של אבא" "תיאום תורים למשפחה"
 ```
 
 Meta returns `request_id` immediately. Within seconds, **Railway logs** show:
@@ -89,12 +89,12 @@ Bot answers **in the group**. Logs: `Wake message from … (group)`.
 
 ## What the code does
 
-| Piece | Behavior |
-|--------|----------|
-| **Inbound** | Reads `group_id`; `from` = sender |
-| **Outbound** | Replies in same thread (group or DM) |
+| Piece              | Behavior                                     |
+| ------------------ | -------------------------------------------- |
+| **Inbound**        | Reads `group_id`; `from` = sender            |
+| **Outbound**       | Replies in same thread (group or DM)         |
 | **Group webhooks** | Logs `invite_link`, joins, errors to Railway |
-| **OTP / reset** | Still 1:1 only |
+| **OTP / reset**    | Still 1:1 only                               |
 
 No `WHATSAPP_GROUP_ID` env needed — each message carries its `group_id`.
 
@@ -110,14 +110,14 @@ No `WHATSAPP_GROUP_ID` env needed — each message carries its `group_id`.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| Create group API fails | Confirm OBA + `whatsapp_business_messaging` permission on token |
-| No `invite_link` in logs | Subscribe to `group_lifecycle_update`; check webhook URL |
-| Invite send fails | Template not approved; wrong `WHATSAPP_GROUP_INVITE_TEMPLATE_NAME` |
-| Bot silent in group | Family didn’t join via invite; redeploy latest code |
-| Replies only in DM | Old deploy without group send support |
+| Symptom                  | Fix                                                                |
+| ------------------------ | ------------------------------------------------------------------ |
+| Create group API fails   | Confirm OBA + `whatsapp_business_messaging` permission on token    |
+| No `invite_link` in logs | Subscribe to `group_lifecycle_update`; check webhook URL           |
+| Invite send fails        | Template not approved; wrong `WHATSAPP_GROUP_INVITE_TEMPLATE_NAME` |
+| Bot silent in group      | Family didn’t join via invite; redeploy latest code                |
+| Replies only in DM       | Old deploy without group send support                              |
 
 ---
 
-*See also: [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md)*
+_See also: [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md)_
