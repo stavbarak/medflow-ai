@@ -17,6 +17,7 @@ export type Appointment = {
   dateTime: string;
   location: string;
   notes: string;
+  transport: string;
   requirements?: Requirement[];
 };
 

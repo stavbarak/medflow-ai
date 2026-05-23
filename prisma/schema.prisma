@@ -46,6 +46,8 @@ model Appointment {
   dateTime          DateTime
   location          String
   notes             String   @default("")
+  /// Who drives / how the patient gets there (e.g. "שירי תיקח ותחזיר").
+  transport         String   @default("")
   responsibleUserId String?
   responsibleUser   User?    @relation("AppointmentResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   requirements      Requirement[]

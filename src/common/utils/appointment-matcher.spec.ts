@@ -7,6 +7,7 @@ describe('pickAppointmentForUpdate', () => {
   const base = {
     id: '1',
     notes: '',
+    transport: '',
     createdAt: new Date('2026-05-20T20:00:00Z'),
     dateTime: new Date('2026-05-25T09:00:00Z'),
   };

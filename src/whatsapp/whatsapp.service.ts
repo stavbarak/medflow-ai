@@ -32,8 +32,8 @@ import {
   isPlaceholderTitle,
 } from '../common/utils/wake-appointment-fields';
 import {
-  looksLikeAddingToExisting,
   looksLikeNewAppointment,
+  looksLikeNotesUpdate,
 } from './whatsapp-wake-intent';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
 import {
@@ -201,6 +201,7 @@ export class WhatsappService {
       dateTime: extracted.dateTime,
       location,
       notes: extracted.notes?.trim() ?? '',
+      transport: extracted.transport?.trim() ?? '',
     });
 
     if (extracted.requirements?.length) {
@@ -216,7 +217,10 @@ export class WhatsappService {
       extracted.hasTime,
     );
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
-    return `הוספתי תור: ${created.title} — ${when}${timeNote}, ${created.location}.`;
+    const transportNote = created.transport
+      ? ` 🚗 ${created.transport}`
+      : '';
+    return `הוספתי תור: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
   }
 
   private async handleWakeUpdate(payload: string): Promise<string> {
@@ -253,6 +257,7 @@ export class WhatsappService {
       dateTime?: string;
       location?: string;
       notes?: string;
+      transport?: string;
     } = {};
 
     const { patch: schedulePatch, timeMentionedInMessage } =
@@ -283,8 +288,13 @@ export class WhatsappService {
       }
     }
 
+    const transportCandidate = extracted.transport?.trim();
+    if (transportCandidate) {
+      patch.transport = transportCandidate;
+    }
+
     const shouldMergeNotes =
-      reconciled.mergeNotes || looksLikeAddingToExisting(payload);
+      reconciled.mergeNotes || looksLikeNotesUpdate(payload);
     if (shouldMergeNotes) {
       const merged = await this.ai.mergeAppointmentNotes(
         target.notes ?? '',
@@ -298,10 +308,11 @@ export class WhatsappService {
     if (
       !patch.dateTime &&
       !patch.notes &&
+      !patch.transport &&
       !patch.title &&
       !patch.location
     ) {
-      return 'לא זיהיתי מה להוסיף. נסו: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ש…';
+      return 'לא זיהיתי מה להוסיף. נסו: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ששירי תיקח.';
     }
 
     const updated = await this.appointments.update(target.id, patch);
@@ -319,7 +330,18 @@ export class WhatsappService {
     const when = formatAppointmentWhenHebrew(updated.dateTime, showTime);
     const timeNote = showTime ? '' : ' (שעה לא צוינה)';
     const addedNotes = patch.notes && patch.notes !== target.notes;
-    const suffix = addedNotes ? ' (הערות עודכנו)' : '';
+    const addedTransport =
+      patch.transport && patch.transport !== (target.transport ?? '');
+    const suffixParts: string[] = [];
+    if (addedTransport) {
+      suffixParts.push('הסעה עודכנה');
+    }
+    if (addedNotes) {
+      suffixParts.push('הערות עודכנו');
+    }
+    const suffix = suffixParts.length
+      ? ` (${suffixParts.join(', ')})`
+      : '';
     return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
   }
 

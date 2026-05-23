@@ -182,7 +182,8 @@ h2 {
   margin-bottom: 0.35rem;
 }
 
-.notes {
+.notes,
+.transport {
   margin: 0.65rem 0 0;
   font-size: 0.95rem;
   color: #334155;

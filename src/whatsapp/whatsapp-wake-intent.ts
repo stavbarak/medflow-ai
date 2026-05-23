@@ -40,23 +40,20 @@ const ADD_TO_EXISTING_RE =
   /(?:תוסיף|תוסיפי|גם|בנוסף)(?!\s+תור\b)/iu;
 
 const NOTES_UPDATE_RE =
-  /(הערה|הערות|תוסיף להערות|תוסיפי להערות|להוסיף להערות|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|נהג|נהגת|תיקח|תחזיר|יגיע|מגיע|במונית)/iu;
+  /(הערה|הערות|תוסיף להערות|תוסיפי להערות|להוסיף להערות|שימו לב|לזכור|להביא|צריך להביא)/iu;
 
 export function looksLikeAddingToExisting(payload: string): boolean {
   if (looksLikeNewAppointment(payload)) {
     return false;
   }
-  return (
-    looksLikeNotesUpdate(payload) ||
-    ADD_TO_EXISTING_RE.test(payload)
-  );
+  return looksLikeNotesUpdate(payload) || ADD_TO_EXISTING_RE.test(payload);
 }
 
 export function looksLikeNewAppointment(payload: string): boolean {
   return NEW_APPOINTMENT_RE.test(payload);
 }
 
-/** User is adding or changing free-text notes on an existing appointment. */
+/** User is adding or changing prep notes. */
 export function looksLikeNotesUpdate(payload: string): boolean {
   if (looksLikeNewAppointment(payload)) {
     return false;
@@ -85,10 +82,7 @@ export function looksLikeAppointmentUpdate(payload: string): boolean {
   if (UPDATE_RE.test(payload)) {
     return true;
   }
-  if (ADD_TO_EXISTING_RE.test(payload) && DATE_HINT_RE.test(payload)) {
-    return true;
-  }
-  if (ADD_TO_EXISTING_RE.test(payload) && EXISTING_APPOINTMENT_RE.test(payload)) {
+  if (ADD_TO_EXISTING_RE.test(payload)) {
     return true;
   }
   if (DATE_HINT_RE.test(payload) && /(?:תור|התור)\s+של/iu.test(payload)) {

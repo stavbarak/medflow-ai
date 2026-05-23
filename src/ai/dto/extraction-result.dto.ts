@@ -33,6 +33,10 @@ export class AppointmentExtractionResultDto {
   notes?: string;
 
   @IsOptional()
+  @IsString()
+  transport?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ExtractedRequirementItemDto)

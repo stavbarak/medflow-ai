@@ -1,4 +1,4 @@
-/** Terms that indicate transport — must appear in the user's message too. */
+/** Terms that indicate transport — must appear in the user's message too (notes field only). */
 const TRANSPORT_RE =
   /מכונית|רכב|הגעה|מונית|נהג|נסיעה|הסעה|יסיע|תסיע|יגיע|מגיע/iu;
 

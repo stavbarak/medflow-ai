@@ -320,6 +320,9 @@ export default function App() {
               <div className="title">{nextAppt.title}</div>
               <div>{formatWhen(nextAppt.dateTime)}</div>
               <div className="muted">{nextAppt.location}</div>
+              {nextAppt.transport ? (
+                <p className="transport">🚗 {nextAppt.transport}</p>
+              ) : null}
               {nextAppt.notes ? (
                 <p className="notes">{nextAppt.notes}</p>
               ) : null}
@@ -373,6 +376,7 @@ export default function App() {
                   <th>כותרת</th>
                   <th>מועד</th>
                   <th>מיקום</th>
+                  <th>הסעה</th>
                   <th>הערות</th>
                 </tr>
               </thead>
@@ -382,6 +386,7 @@ export default function App() {
                     <td>{a.title}</td>
                     <td>{formatWhen(a.dateTime)}</td>
                     <td>{a.location}</td>
+                    <td className="ellipsis">{a.transport || '—'}</td>
                     <td className="ellipsis">{a.notes || '—'}</td>
                   </tr>
                 ))}

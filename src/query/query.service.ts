@@ -32,6 +32,7 @@ export class QueryService {
         dateTime: a.dateTime.toISOString(),
         location: a.location,
         notes: a.notes,
+        transport: a.transport,
         responsible: a.responsibleUser,
         requirements: a.requirements.map((r) => ({
           description: r.description,
@@ -60,6 +61,9 @@ export class QueryService {
       const when = formatAppointmentWhenHebrew(a.dateTime, true);
       lines.push(`• ${a.title} — ${when}`);
       lines.push(`  📍 ${a.location}`);
+      if (a.transport) {
+        lines.push(`  🚗 ${a.transport}`);
+      }
       if (a.notes) {
         lines.push(`  📝 ${a.notes}`);
       }

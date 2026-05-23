@@ -8,6 +8,7 @@ export type AdditiveUpdatePatch = {
   dateTime?: string;
   location?: string;
   notes?: string;
+  transport?: string;
 };
 
 export type BuiltAdditiveUpdate = {

@@ -5,11 +5,11 @@ import {
   parseReconcileUpdateResponse,
   type ReconcileUpdateResult,
 } from './appointment-update-reconcile';
+import { parseNotesMergeResponse } from './notes-merge';
 import {
   filterMergedNotes,
   filterNotesToSourceText,
 } from '../common/utils/notes-grounding';
-import { parseNotesMergeResponse } from './notes-merge';
 import {
   mergeWakeAppointmentExtraction,
   type WakeAppointmentFields,
@@ -64,9 +64,13 @@ export class AiService {
     mode: 'create' | 'update',
   ): Promise<WakeAppointmentFields> {
     const openai = this.ensureClient();
-    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), notes, requirements (array of { description }). Do NOT include dateTime.
-CRITICAL for notes: copy ONLY facts the user actually wrote (prep, blood tests, email instructions, companions, transport IF they said it). NEVER invent transportation (מונית, רכב, מכונית פרטית, הגעה) or people not named in the message. Hebrew only.`;
-    const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with ONLY new requirements if any (array of { description }). Do NOT include notes. Hebrew only.`;
+    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), transport (who drives / how patient gets there — e.g. "שירי תיקח ותחזיר", "יגיע במונית"), notes, requirements (array of { description }). Do NOT include dateTime.
+CRITICAL: put ride, driver, pickup, return, and accompaniment-for-travel in "transport", NOT in "notes".
+CRITICAL for notes: copy ONLY prep facts (blood tests, fasting, what to bring, email instructions). NEVER invent transportation or people not named in the message. Hebrew only.`;
+    const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with optional keys:
+- requirements (array of { description }) if any new checklist items
+- transport (string) ONLY if the message specifies ride, driver, pickup, or how they get there — return the FULL new value (replaces existing; do not append to old text)
+Do NOT include notes. Hebrew only.`;
     const completion = await openai.chat.completions.create({
       model: this.model,
       response_format: { type: 'json_object' },
@@ -120,7 +124,7 @@ Return JSON only:
 {
   "title": optional string — visit type if user names/corrects it (e.g. ביקורת קרדיו אונקולוגיה),
   "location": optional string — hospital/clinic if user names/corrects it,
-  "mergeNotes": boolean — true if message adds/changes companions, transport, meals, or prep notes; false if ONLY time/title/location
+  "mergeNotes": boolean — true if message adds prep, meals, or what to bring; false if ONLY time/title/location
 }
 Rules:
 - If user clarifies what the appointment IS (ביקורת…, פט סיטי…), set title even if existing title was generic "תור".
@@ -146,8 +150,7 @@ Rules:
   }
 
   /**
-   * Merge existing appointment notes with a new WhatsApp message.
-   * Overrides the same topic (e.g. who drives); appends unrelated facts.
+   * Merge existing appointment notes with a new WhatsApp message (prep / what to bring — not transport).
    */
   async mergeAppointmentNotes(
     existingNotes: string,
@@ -161,14 +164,14 @@ Rules:
       messages: [
         {
           role: 'system',
-          content: `You maintain Hebrew "notes" for one medical appointment (${this.patientLabel}).
+          content: `You maintain Hebrew "notes" for one medical appointment (${this.patientLabel}) — preparation, what to bring, meals, reminders. NOT transport (who drives).
 Return JSON: { "notes": "..." } — the full updated notes text.
 
 Rules:
-- If the new message CORRECTS or REPLACES the same topic (who drives, who accompanies, how they arrive, pickup/return), UPDATE that part and remove the outdated sentence. Example: existing "עדי תלווה" + new "שירי תיקח" → keep only Shiri for transport, not both.
 - If the new message adds an UNRELATED fact (meal time, what to bring, parking, blood test reminder), APPEND it as a new sentence/line.
 - Keep all other existing facts that were not contradicted.
-- Do not invent facts not in existing notes or the new message. NEVER add transportation unless the new message mentions it.
+- Do NOT put ride/driver/pickup info here — that lives in a separate transport field.
+- Do not invent facts not in existing notes or the new message.
 - Short, natural Hebrew suitable for a family coordination app.
 - If the new message has nothing for notes, return { "notes": "<unchanged existing>" }.`,
         },
@@ -203,7 +206,7 @@ Rules:
       messages: [
         {
           role: 'system',
-          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS (including appointment notes for transport, companions, and preparation). If the answer is not in the facts, say briefly in Hebrew that it is not stored. Be concise, suitable for WhatsApp.`,
+          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS (including transport for who drives, notes for preparation, requirements). If the answer is not in the facts, say briefly in Hebrew that it is not stored. Be concise, suitable for WhatsApp.`,
         },
         {
           role: 'user',

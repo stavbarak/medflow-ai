@@ -57,8 +57,14 @@ describe('classifyWakePayload', () => {
 
   it('detects explicit notes updates', () => {
     expect(
-      looksLikeNotesUpdate('תוסיף להערות שאבא יגיע במונית ועדי איתו'),
+      looksLikeNotesUpdate('תוסיף להערות שצריך להביא תוצאות דם'),
     ).toBe(true);
+  });
+
+  it('treats add-to-existing follow-ups as update intent', () => {
+    expect(
+      classifyWakePayload('תוסיף ששירי תיקח אותו'),
+    ).toBe('update');
   });
 
   it('does not treat new booking notes as a notes-only update', () => {

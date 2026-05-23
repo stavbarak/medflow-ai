@@ -23,6 +23,10 @@ export class CreateAppointmentDto {
   notes?: string;
 
   @IsOptional()
+  @IsString()
+  transport?: string;
+
+  @IsOptional()
   @IsUUID()
   responsibleUserId?: string;
 }
