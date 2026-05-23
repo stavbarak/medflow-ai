@@ -27,7 +27,7 @@ const DATE_HINT_RE = /\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?/u;
  * Requires definite form (התור) or "תור של …".
  */
 const EXISTING_APPOINTMENT_RE =
-  /(?:^|[,\s])התור\s+(?:ב|במ|ב-|ל|של|הוא|היא|בשעה)|תור\s+של(?:\s+ה)?-?|(?:^|[,\s])התור\s+הוא/iu;
+  /(?:^|[,\s])התור\s+(?:ב|במ|ב-|ל|של|הוא|היא|בשעה)|תור\s+של(?:\s+ה)?-?|(?:^|[,\s])התור\s+הוא|שהתור\s+ל/iu;
 
 const CLINIC_OR_SITE_RE =
   /(מרפאה|איכילוב|בית חולים|בית-חולים|מכון|קופת|הדסה|שיבא|סורוקה|אסף|רמבם)/iu;
@@ -35,8 +35,22 @@ const CLINIC_OR_SITE_RE =
 const FIELD_UPDATE_RE =
   /(בשעה|השעה|הוא בשעה|היא בשעה|מיקום|במקום|הערות)/iu;
 
+/** Adding info to an existing appointment (not "תוסיף תור" = new booking). */
+const ADD_TO_EXISTING_RE =
+  /(?:תוסיף|תוסיפי|גם|בנוסף)(?!\s+תור\b)/iu;
+
 const NOTES_UPDATE_RE =
-  /(הערה|הערות|תוסיף להערות|תוסיפי להערות|להוסיף להערות|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|נהג|נהגת)/iu;
+  /(הערה|הערות|תוסיף להערות|תוסיפי להערות|להוסיף להערות|שימו לב|לזכור|להביא|צריך להביא|ילווה|מלווה|יהיה איתו|יהיו איתו|איתו שם|איתה שם|נהג|נהגת|תיקח|תחזיר|יגיע|מגיע|במונית)/iu;
+
+export function looksLikeAddingToExisting(payload: string): boolean {
+  if (looksLikeNewAppointment(payload)) {
+    return false;
+  }
+  return (
+    looksLikeNotesUpdate(payload) ||
+    ADD_TO_EXISTING_RE.test(payload)
+  );
+}
 
 export function looksLikeNewAppointment(payload: string): boolean {
   return NEW_APPOINTMENT_RE.test(payload);
@@ -69,6 +83,12 @@ export function looksLikeAppointmentUpdate(payload: string): boolean {
     return false;
   }
   if (UPDATE_RE.test(payload)) {
+    return true;
+  }
+  if (ADD_TO_EXISTING_RE.test(payload) && DATE_HINT_RE.test(payload)) {
+    return true;
+  }
+  if (ADD_TO_EXISTING_RE.test(payload) && EXISTING_APPOINTMENT_RE.test(payload)) {
     return true;
   }
   if (DATE_HINT_RE.test(payload) && /(?:תור|התור)\s+של/iu.test(payload)) {

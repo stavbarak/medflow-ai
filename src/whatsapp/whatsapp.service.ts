@@ -18,16 +18,16 @@ import {
   resolveUpdateTarget,
 } from '../common/utils/appointment-matcher';
 import {
-  applyTimeToAppointmentDay,
   formatAppointmentWhenHebrew,
   listDateMatchesInText,
   parseAppointmentWhenFromMatch,
   parseAppointmentWhenFromText,
   textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
+import { buildAdditiveUpdatePatch } from '../common/utils/appointment-update-patch';
 import {
+  looksLikeAddingToExisting,
   looksLikeNewAppointment,
-  looksLikeNotesUpdate,
   looksLikeScheduleOnlyUpdate,
 } from './whatsapp-wake-intent';
 import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
@@ -212,7 +212,7 @@ export class WhatsappService {
       return this.handleWakeCreate(payload);
     }
 
-    const extracted = await this.ai.extractAppointmentFromText(payload);
+    const extracted = await this.ai.extractAppointmentUpdateDelta(payload);
     const lookup = await this.resolveAppointmentForUpdate(payload);
     if (lookup.status === 'ambiguous') {
       return formatAmbiguousUpdatePromptHebrew(lookup.appointments);
@@ -225,55 +225,49 @@ export class WhatsappService {
     }
     const target = lookup.appointment;
 
-    const patch: {
-      title?: string;
-      dateTime?: string;
-      location?: string;
-      notes?: string;
-    } = {};
+    const wantsTimeChange =
+      textHasExplicitTime(payload) ||
+      looksLikeScheduleOnlyUpdate(payload);
+    const wantsNotesAdd = looksLikeAddingToExisting(payload);
 
-    let hasTime = extracted.hasTime;
-    const parsedWhen = parseAppointmentWhenFromText(payload);
-    if (parsedWhen) {
-      patch.dateTime = parsedWhen.dateTime;
-      hasTime = parsedWhen.hasTime;
-    } else {
-      const timeOnly = applyTimeToAppointmentDay(
-        new Date(target.dateTime),
+    const { patch, hasTime } = buildAdditiveUpdatePatch(payload, target, {
+      wantsTimeChange,
+    });
+
+    if (wantsNotesAdd) {
+      const merged = await this.ai.mergeAppointmentNotes(
+        target.notes ?? '',
         payload,
       );
-      if (timeOnly) {
-        patch.dateTime = timeOnly.dateTime;
-        hasTime = true;
-      } else if (extracted.dateTime) {
-        patch.dateTime = extracted.dateTime;
+      if (merged && merged !== (target.notes ?? '').trim()) {
+        patch.notes = merged;
       }
     }
-    const scheduleOnly = looksLikeScheduleOnlyUpdate(payload);
 
-    if (!scheduleOnly && extracted.title?.trim()) {
-      patch.title = extracted.title.trim();
-    }
-    if (!scheduleOnly && extracted.location?.trim()) {
-      patch.location = extracted.location.trim();
-    }
-    if (looksLikeNotesUpdate(payload) && extracted.notes?.trim()) {
-      patch.notes = extracted.notes.trim();
-    }
-
-    if (
-      !patch.dateTime &&
-      !patch.title &&
-      !patch.location &&
-      !patch.notes
-    ) {
-      return 'לא זיהיתי מה לעדכן. נסו: חנטריש זה 25.5.2026 ותשנה ל-11:00';
+    if (!patch.dateTime && !patch.notes) {
+      return 'לא זיהיתי מה להוסיף. נסו: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ש…';
     }
 
     const updated = await this.appointments.update(target.id, patch);
-    const when = formatAppointmentWhenHebrew(updated.dateTime, hasTime);
-    const timeNote = hasTime ? '' : ' (שעה לא צוינה)';
-    return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.`;
+
+    if (extracted.requirements?.length) {
+      for (const r of extracted.requirements) {
+        await this.requirements.create(updated.id, {
+          description: r.description,
+        });
+      }
+    }
+
+    const displayHasTime =
+      hasTime || textHasExplicitTime(payload);
+    const when = formatAppointmentWhenHebrew(
+      updated.dateTime,
+      displayHasTime,
+    );
+    const timeNote = displayHasTime ? '' : ' (שעה לא צוינה)';
+    const addedNotes = patch.notes && patch.notes !== target.notes;
+    const suffix = addedNotes ? ' (הערות עודכנו)' : '';
+    return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
   }
 
   private async resolveAppointmentForUpdate(payload: string) {

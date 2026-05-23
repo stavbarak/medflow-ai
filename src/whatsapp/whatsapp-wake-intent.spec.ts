@@ -1,5 +1,6 @@
 import {
   classifyWakePayload,
+  looksLikeAddingToExisting,
   looksLikeAppointmentUpdate,
   looksLikeNewAppointment,
   looksLikeNotesUpdate,
@@ -63,5 +64,10 @@ describe('classifyWakePayload', () => {
   it('does not treat new booking notes as a notes-only update', () => {
     const payload = 'יש לאבא תור ב-27.5. יגיע במונית';
     expect(looksLikeNotesUpdate(payload)).toBe(false);
+  });
+
+  it('detects adding info to existing appointment', () => {
+    expect(looksLikeAddingToExisting('תוסיף ששירי תיקח אותו')).toBe(true);
+    expect(looksLikeAddingToExisting('תוסיף תור לאבא ב-14.7')).toBe(false);
   });
 });

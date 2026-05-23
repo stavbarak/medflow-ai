@@ -1,4 +1,8 @@
 import { formatAppointmentWhenHebrew } from './appointment-datetime';
+import {
+  extractSubjectHintsForMatch,
+  isPlaceholderTitle,
+} from './wake-appointment-fields';
 
 export type AppointmentMatchRow = {
   id: string;
@@ -53,6 +57,20 @@ function scoreAppointmentMatch(
   for (const h of haystacks) {
     if (h.length >= 5 && payload.includes(h)) {
       score += h.length * 3;
+    }
+  }
+
+  if (isPlaceholderTitle(appointment.title)) {
+    for (const hint of extractSubjectHintsForMatch(payload)) {
+      if (hint.length >= 4 && payload.includes(hint)) {
+        score += hint.length * 2;
+      }
+    }
+  } else {
+    for (const hint of extractSubjectHintsForMatch(payload)) {
+      if (appointment.title.includes(hint) || appointment.notes.includes(hint)) {
+        score += hint.length * 2;
+      }
     }
   }
 
