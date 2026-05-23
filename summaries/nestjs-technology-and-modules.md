@@ -134,7 +134,7 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **Role:** **Meta WhatsApp Cloud API** — webhook verification, inbound messages, wake-word orchestration.
 
-**How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on allowlist + registered user, classifies intent (`whatsapp-wake-intent.ts`), and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
+**How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on **allowlist only** (no web registration required for WhatsApp), classifies intent (`whatsapp-wake-intent.ts`), and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
 
 ---
 
@@ -183,7 +183,6 @@ flowchart TB
   WhatsappModule --> QueryModule
   WhatsappModule --> AppointmentsModule
   WhatsappModule --> RequirementsModule
-  WhatsappModule --> UsersModule
   AuthModule --> WhatsappModule
 
   AuthModule -.-> PhoneAllowlistModule
@@ -209,7 +208,7 @@ flowchart LR
 
   subgraph wa ["WhatsApp (no JWT)"]
     M[Meta webhook] --> W[/api/whatsapp]
-    W --> AL{allowlist + user?}
+    W --> AL{allowlist?}
     AL --> INT[intent + services]
   end
 

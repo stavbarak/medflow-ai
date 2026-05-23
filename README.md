@@ -37,7 +37,7 @@ The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same**
 |----------|---------|
 | **Webhook** | `GET /api/whatsapp` — Meta verification (`hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**). `POST /api/whatsapp` — inbound messages (expects Meta **WhatsApp Cloud API** JSON). |
 | **Signature** | If **`WHATSAPP_APP_SECRET`** is set, `X-Hub-Signature-256` is verified (requires Nest `rawBody`, already enabled). If unset, signature check is skipped (dev only). |
-| **Who can write** | Sender must be on the **allowlist** (`AllowedPhone` table or `ALLOWED_PHONE_NUMBERS` env) **and** registered (`User`). Unknown → Hebrew rejection; allowed but not registered → “register in the app” message. |
+| **Who can write** | Sender must be on the **allowlist** (`AllowedPhone` table or `ALLOWED_PHONE_NUMBERS` env). Unknown → Hebrew rejection. Web login still requires **register** + allowlist. |
 | **Routing** | Messages that look like **questions** (e.g. end with `?`, or Hebrew question-style) → grounded **`QueryService`**. Other text → **AI extraction** → new **appointment** (+ optional **requirements**). |
 | **Outbound** | If **`WHATSAPP_ACCESS_TOKEN`** and **`WHATSAPP_PHONE_NUMBER_ID`** are set, replies are sent via Graph API. If either is missing, the intended reply is **only logged** (`[WhatsApp לא מוגדר]`) — useful for local testing without Meta tokens. |
 

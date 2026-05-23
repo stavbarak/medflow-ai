@@ -15,7 +15,6 @@ flowchart TB
   WS -->|verify HMAC| SIG[rawBody + APP_SECRET]
   WS --> DISP[dispatchMessage]
   DISP --> AL[PhoneAllowlistService]
-  DISP --> US[UsersService.findByPhone]
   DISP --> RW[replyWakeWord]
   RW --> INT[classifyWakePayload]
   INT -->|list| Q1[QueryService.formatFactsDumpHebrew]
@@ -40,8 +39,6 @@ sequenceDiagram
   participant M as Meta
   participant W as WhatsappService
   participant A as Allowlist
-  participant U as UsersService
-
   M->>W: POST /api/whatsapp (JSON body)
   W->>W: verifySignature(rawBody)
   W->>W: extractInboundWhatsappMessages
@@ -54,13 +51,8 @@ sequenceDiagram
       alt not allowlisted
         W->>M: Hebrew rejection
       else allowlisted
-        W->>U: findByPhone
-        alt not registered
-          W->>M: "register in the app"
-        else registered
-          W->>W: replyWakeWord → intent switch
-          W->>M: Hebrew reply
-        end
+        W->>W: replyWakeWord → intent switch
+        W->>M: Hebrew reply
       end
     end
   end
@@ -84,11 +76,6 @@ Entry points in code:
     }
     if (!(await this.allowlist.isAllowed(message.senderWaId))) {
       await this.safeSend(message.replyTo, PHONE_NOT_ON_ALLOWLIST_HE);
-      return;
-    }
-    const user = await this.users.findByPhone(message.senderWaId);
-    if (!user) {
-      await this.safeSend(message.replyTo, PHONE_NOT_REGISTERED_WHATSAPP_HE);
       return;
     }
     await this.replyWakeWord(message.replyTo, text);
@@ -160,7 +147,7 @@ Intent switch in `WhatsappService`:
 
 - **`GET /api/whatsapp`** — Meta verification; `hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**.
 - **`POST /api/whatsapp`** — inbound Cloud API payloads; **HMAC** on `X-Hub-Signature-256` when **`WHATSAPP_APP_SECRET`** is set. Nest boots with **`rawBody: true`** so signature verification uses raw bytes.
-- **Allowlist + registration gate** — sender must be in `AllowedPhone` / `ALLOWED_PHONE_NUMBERS` **and** have a `User` row (same phone).
+- **Allowlist gate** — sender must be in `AllowedPhone` / `ALLOWED_PHONE_NUMBERS`. No web registration required for WhatsApp (family can message immediately once their number is allowlisted).
 - **Full CRUD-style intents** — create, update (with appointment matching), cancel, list, Q&A—not “always create” anymore.
 - **Outbound** — Graph API **`v22.0`** when tokens are set; otherwise log `[WhatsApp לא מוגדר]` for local dev.
 - **Group-ready plumbing** — `recipient_type: group` for replies; group webhooks logged. See [WhatsApp Groups setup](whatsapp-groups-setup.md) (requires Meta eligibility).
@@ -174,10 +161,9 @@ Meta does **not** provide a production “allowed phones” list for your busine
 | Layer | Where | What |
 |-------|--------|------|
 | Allowlist | `PhoneAllowlistService` | `ALLOWED_PHONE_NUMBERS` env **or** `AllowedPhone` table |
-| Registration | `UsersService` | Must have completed **הרשמה** on the web app |
 | Wake word | `dispatchMessage` | Must include `חנטריש` |
 
-Same allowlist also gates **register / login / forgot-password** in `AuthModule`.
+**Web app** still requires allowlist **and** **הרשמה** (password). WhatsApp only checks the allowlist.
 
 ---
 
