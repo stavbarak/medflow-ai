@@ -5,6 +5,10 @@ import {
   parseReconcileUpdateResponse,
   type ReconcileUpdateResult,
 } from './appointment-update-reconcile';
+import {
+  filterMergedNotes,
+  filterNotesToSourceText,
+} from '../common/utils/notes-grounding';
 import { parseNotesMergeResponse } from './notes-merge';
 import {
   mergeWakeAppointmentExtraction,
@@ -60,7 +64,8 @@ export class AiService {
     mode: 'create' | 'update',
   ): Promise<WakeAppointmentFields> {
     const openai = this.ensureClient();
-    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type, e.g. "ביקורת קרדיו אונקולוגיה", "פט סיטי" — never bare "תור" if details exist), location (hospital/clinic name when mentioned), notes, requirements (array of { description }). Do NOT include dateTime. Put transportation and companions in notes. Hebrew only.`;
+    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), notes, requirements (array of { description }). Do NOT include dateTime.
+CRITICAL for notes: copy ONLY facts the user actually wrote (prep, blood tests, email instructions, companions, transport IF they said it). NEVER invent transportation (מונית, רכב, מכונית פרטית, הגעה) or people not named in the message. Hebrew only.`;
     const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with ONLY new requirements if any (array of { description }). Do NOT include notes. Hebrew only.`;
     const completion = await openai.chat.completions.create({
       model: this.model,
@@ -83,7 +88,11 @@ export class AiService {
     } catch {
       throw new ServiceUnavailableException('פלט המודל אינו JSON תקין');
     }
-    return mergeWakeAppointmentExtraction(parsed, text);
+    const merged = mergeWakeAppointmentExtraction(parsed, text);
+    if (mode === 'create' && merged.notes?.trim()) {
+      merged.notes = filterNotesToSourceText(merged.notes, text);
+    }
+    return merged;
   }
 
   /**
@@ -159,7 +168,7 @@ Rules:
 - If the new message CORRECTS or REPLACES the same topic (who drives, who accompanies, how they arrive, pickup/return), UPDATE that part and remove the outdated sentence. Example: existing "עדי תלווה" + new "שירי תיקח" → keep only Shiri for transport, not both.
 - If the new message adds an UNRELATED fact (meal time, what to bring, parking, blood test reminder), APPEND it as a new sentence/line.
 - Keep all other existing facts that were not contradicted.
-- Do not invent facts not in existing notes or the new message.
+- Do not invent facts not in existing notes or the new message. NEVER add transportation unless the new message mentions it.
 - Short, natural Hebrew suitable for a family coordination app.
 - If the new message has nothing for notes, return { "notes": "<unchanged existing>" }.`,
         },
@@ -174,7 +183,11 @@ Rules:
       return null;
     }
     try {
-      return parseNotesMergeResponse(JSON.parse(raw) as unknown);
+      const merged = parseNotesMergeResponse(JSON.parse(raw) as unknown);
+      if (!merged) {
+        return null;
+      }
+      return filterMergedNotes(existing, merged, userMessage);
     } catch {
       return null;
     }
