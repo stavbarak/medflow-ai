@@ -41,11 +41,9 @@ import {
   stripWakeWord,
 } from './whatsapp-wake-intent';
 
-interface MetaTextMessage {
-  from?: string;
-  type?: string;
-  text?: { body?: string };
-}
+import { extractInboundWhatsappMessages } from './whatsapp-inbound';
+import type { WhatsappSendTarget } from './whatsapp-send-target';
+import { individualTarget } from './whatsapp-send-target';
 
 @Injectable()
 export class WhatsappService {
@@ -98,7 +96,7 @@ export class WhatsappService {
     body: unknown,
   ): Promise<{ status: string }> {
     this.verifySignature(rawBody, signature);
-    const messages = this.extractInboundMessages(body);
+    const messages = extractInboundWhatsappMessages(body);
     if (messages.length === 0) {
       this.logger.debug('WhatsApp webhook: no text messages in payload');
     }
@@ -110,31 +108,11 @@ export class WhatsappService {
     return { status: 'ok' };
   }
 
-  private extractInboundMessages(body: unknown): Array<{
-    from: string;
+  private async dispatchMessage(message: {
     text: string;
-  }> {
-    const out: Array<{ from: string; text: string }> = [];
-    const root = body as {
-      entry?: Array<{
-        changes?: Array<{
-          value?: { messages?: MetaTextMessage[] };
-        }>;
-      }>;
-    };
-    for (const e of root.entry ?? []) {
-      for (const c of e.changes ?? []) {
-        for (const msg of c.value?.messages ?? []) {
-          if (msg.type === 'text' && msg.from && msg.text?.body) {
-            out.push({ from: msg.from, text: msg.text.body });
-          }
-        }
-      }
-    }
-    return out;
-  }
-
-  private async dispatchMessage(message: { from: string; text: string }) {
+    senderWaId: string;
+    replyTo: WhatsappSendTarget;
+  }) {
     const text = message.text.trim();
     if (!text) {
       return;
@@ -145,10 +123,13 @@ export class WhatsappService {
       return;
     }
 
-    await this.replyWakeWord(message.from, text);
+    this.logger.debug(
+      `Wake message from ${message.senderWaId} (${message.replyTo.type})`,
+    );
+    await this.replyWakeWord(message.replyTo, text);
   }
 
-  private async replyWakeWord(from: string, text: string) {
+  private async replyWakeWord(replyTo: WhatsappSendTarget, text: string) {
     const payload = stripWakeWord(text);
     const intent = classifyWakePayload(payload);
 
@@ -156,28 +137,31 @@ export class WhatsappService {
       switch (intent) {
         case 'list':
           await this.safeSend(
-            from,
+            replyTo,
             this.query.formatFactsDumpHebrew(
               await this.query.buildFactsPayload(),
             ),
           );
           return;
         case 'question':
-          await this.safeSend(from, await this.query.answerWakeWord(text));
+          await this.safeSend(replyTo, await this.query.answerWakeWord(text));
           return;
         case 'cancel':
-          await this.safeSend(from, await this.handleWakeCancel(payload));
+          await this.safeSend(replyTo, await this.handleWakeCancel(payload));
           return;
         case 'create':
-          await this.safeSend(from, await this.handleWakeCreate(payload));
+          await this.safeSend(replyTo, await this.handleWakeCreate(payload));
           return;
         case 'update':
-          await this.safeSend(from, await this.handleWakeUpdate(payload));
+          await this.safeSend(replyTo, await this.handleWakeUpdate(payload));
           return;
       }
     } catch (err) {
       this.logger.error(err instanceof Error ? err.message : err);
-      await this.safeSend(from, 'לא הצלחתי לעבד את ההודעה. נסו לנסח שוב.');
+      await this.safeSend(
+        replyTo,
+        'לא הצלחתי לעבד את ההודעה. נסו לנסח שוב.',
+      );
     }
   }
 
@@ -381,12 +365,12 @@ export class WhatsappService {
     return `ביטלתי ${rows.length} תור/ים:\n${lines.join('\n')}`;
   }
 
-  private async safeSend(to: string, message: string) {
+  private async safeSend(target: WhatsappSendTarget, message: string) {
     try {
-      await this.sendWhatsappMessage(to, message);
+      await this.sendWhatsappMessage(target, message);
     } catch (err) {
       this.logger.error(
-        `Failed to send WhatsApp message to ${to}: ${err instanceof Error ? err.message : err}`,
+        `Failed to send WhatsApp message (${target.type}): ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -401,7 +385,7 @@ export class WhatsappService {
       this.config.get<string>('WHATSAPP_OTP_TEMPLATE_LANG') ?? 'he';
 
     if (templateName) {
-      await this.postWhatsAppMessage(to, {
+      await this.postWhatsAppMessage(individualTarget(to), {
         type: 'template',
         template: {
           name: templateName,
@@ -425,7 +409,7 @@ export class WhatsappService {
 
     const text = `קוד איפוס MedFlow: ${code}\nבתוקף 15 דקות. אל תשתף את הקוד.`;
     try {
-      await this.postWhatsAppMessage(to, {
+      await this.postWhatsAppMessage(individualTarget(to), {
         type: 'text',
         text: { body: text },
       });
@@ -439,9 +423,12 @@ export class WhatsappService {
     }
   }
 
-  async sendWhatsappMessage(to: string, message: string): Promise<void> {
+  async sendWhatsappMessage(
+    target: WhatsappSendTarget,
+    message: string,
+  ): Promise<void> {
     try {
-      await this.postWhatsAppMessage(to, {
+      await this.postWhatsAppMessage(target, {
         type: 'text',
         text: { body: message },
       });
@@ -456,7 +443,7 @@ export class WhatsappService {
   }
 
   private async postWhatsAppMessage(
-    to: string,
+    target: WhatsappSendTarget,
     payload: Record<string, unknown>,
   ): Promise<void> {
     const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
@@ -467,11 +454,23 @@ export class WhatsappService {
       );
     }
 
+    const base =
+      target.type === 'group'
+        ? {
+            messaging_product: 'whatsapp',
+            recipient_type: 'group',
+            to: target.groupId,
+          }
+        : {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: target.phone.replace(/\D/g, ''),
+          };
+
     await axios.post(
       `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
       {
-        messaging_product: 'whatsapp',
-        to: to.replace(/\D/g, ''),
+        ...base,
         ...payload,
       },
       {
