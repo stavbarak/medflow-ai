@@ -23,9 +23,9 @@ describe('PhoneAllowlistService', () => {
   });
 
   it('allows numbers from env ALLOWED_PHONE_NUMBERS', async () => {
-    config.get.mockReturnValue('972521234567, 052-321-1743');
+    config.get.mockReturnValue('972521234567, 052-123-4567');
     prisma.allowedPhone.findUnique.mockResolvedValue(null);
-    await expect(svc().isAllowed('0523211743')).resolves.toBe(true);
+    await expect(svc().isAllowed('0521234567')).resolves.toBe(true);
     expect(prisma.allowedPhone.findUnique).not.toHaveBeenCalled();
   });
 

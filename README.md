@@ -113,7 +113,7 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 
 #### 5. Login, forgot password, and removing a user
 
-- **Phone format:** use digits with country code, e.g. `972523211743` (with or without `+`; the API normalizes on login/register).
+- **Phone format:** use digits with country code, e.g. `972521234567` (with or without `+`; the API normalizes on login/register).
 - **Forgot password:** login → **שכחתי סיסמה** → phone → **6-digit code** via **WhatsApp** (`WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`).
   - **Plain text** only works if you messaged the business number in the **last 24 hours** (rolling window from your last inbound message — not “once ever”).
   - For codes **anytime** (no 24h wait), add an approved **OTP template** in Meta and set `WHATSAPP_OTP_TEMPLATE_NAME` (+ optional `WHATSAPP_OTP_TEMPLATE_LANG=he`) on Railway.
@@ -127,27 +127,35 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 - **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
 
 ```sql
--- use the phone as stored, or try both 972… and +972…
+-- replace YOUR_PHONE with your normalized number (972…), or try both 972… and +972…
 DELETE FROM "PasswordResetToken" WHERE "userId" IN (
-  SELECT id FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743')
+  SELECT id FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE')
 );
 DELETE FROM "MedicalDocument" WHERE "uploadedByUserId" IN (
-  SELECT id FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743')
+  SELECT id FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE')
 );
-DELETE FROM "User" WHERE "phoneNumber" IN ('972523211743', '+972523211743');
+DELETE FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE');
 ```
 
 Then use **הרשמה** in the app with a new password.
 
-#### 6. Seed (one-off)
+#### 6. Seed allowlist (one-off, no phone numbers in git)
 
-After first successful deploy, open the API service → **Shell** (or use Railway CLI):
+Set on the **API** service (and in local `.env`):
+
+- `ALLOWED_PHONE_NUMBERS` — comma-separated numbers only
+- `FAMILY_ALLOWLIST` — `phone:label:gender` per person (see [`.env.example`](.env.example))
+- `PATIENT_PHONE` — dad’s number for WhatsApp second-person (אתה/לך)
+
+After first deploy, open the API service → **Shell** (or Railway CLI):
 
 ```bash
 npm run prisma:seed
 ```
 
-Or from your machine with Railway CLI: `railway run npm run prisma:seed` (after `railway link`).
+Or locally: `npm run prisma:seed` with the same variables in `.env`.
+
+Optional SQL templates (copy locally, never commit): `scripts/seed-family-allowlist.example.sql`.
 
 #### 6. Deploy the SPA elsewhere (optional)
 

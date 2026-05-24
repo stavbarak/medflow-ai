@@ -1,8 +1,5 @@
 import { normalizeIsraeliPhone } from './phone';
 
-/** Default: אבא's mobile from family allowlist (0528777939). */
-export const DEFAULT_PATIENT_PHONE = '972528777939';
-
 export type PatientReplyOptions = {
   /** When true, bot replies use אתה/לך/אותך (the sender is the patient). */
   addressSecondPerson: boolean;
@@ -10,19 +7,19 @@ export type PatientReplyOptions = {
 
 export function resolvePatientPhone(configValue?: string | null): string {
   const raw = configValue?.trim();
-  return raw ? normalizeIsraeliPhone(raw) : DEFAULT_PATIENT_PHONE;
+  return raw ? normalizeIsraeliPhone(raw) : '';
 }
 
-export function isPatientPhone(
-  phoneInput: string,
-  patientPhone = DEFAULT_PATIENT_PHONE,
-): boolean {
+export function isPatientPhone(phoneInput: string, patientPhone: string): boolean {
+  if (!patientPhone) {
+    return false;
+  }
   return normalizeIsraeliPhone(phoneInput.trim()) === patientPhone;
 }
 
 export function replyOptionsForSender(
   senderWaId: string,
-  patientPhone = DEFAULT_PATIENT_PHONE,
+  patientPhone: string,
 ): PatientReplyOptions {
   return {
     addressSecondPerson: isPatientPhone(senderWaId, patientPhone),

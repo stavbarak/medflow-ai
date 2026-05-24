@@ -68,7 +68,7 @@ WHATSAPP_GROUP_INVITE_TEMPLATE_LANG=he
 Use `group_id` from step 3 logs. One phone per family member (max **8** in the group):
 
 ```bash
-npm run whatsapp:send-group-invite -- <GROUP_ID> 972521234567 972523211743
+npm run whatsapp:send-group-invite -- <GROUP_ID> 972521234567 972529876543
 ```
 
 Each person opens the invite in WhatsApp and **joins**.

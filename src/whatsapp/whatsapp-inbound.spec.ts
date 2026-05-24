@@ -39,7 +39,7 @@ describe('extractInboundWhatsappMessages', () => {
               value: {
                 messages: [
                   {
-                    from: '972523211743',
+                    from: '972529876543',
                     type: 'text',
                     text: { body: 'חנטריש' },
                   },
@@ -52,7 +52,7 @@ describe('extractInboundWhatsappMessages', () => {
     });
     expect(messages[0].replyTo).toEqual({
       type: 'individual',
-      phone: '972523211743',
+      phone: '972529876543',
     });
   });
 });
