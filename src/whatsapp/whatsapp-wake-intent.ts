@@ -16,7 +16,7 @@ const UPDATE_RE =
 export const NEW_APPOINTMENT_RE =
   /(?:יש\s+(?:ל(?:אבא|אמא|מטופל)\s+)?תור|(?:תוסיף|תוסיפי|הוסף|הוסיפי|נוסף)\s+תור|תור\s+חדש|לקבוע|לתאם|נקבע(?:\s+תור)?)/iu;
 
-const DATE_HINT_RE = /\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?/u;
+const DATE_HINT_RE = /\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?/u;
 
 /**
  * Refers to an appointment already in the system — not "יש תור ב-14.7" (new booking).

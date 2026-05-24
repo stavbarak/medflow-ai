@@ -80,7 +80,7 @@ export function jerusalemLocalToUtc(
   return new Date(Date.UTC(year, month - 1, day, hour - 3, minute));
 }
 
-const DATE_RE = /(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?/gu;
+const DATE_RE = /(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?/gu;
 
 function expandYear(yearRaw: string): number {
   const y = parseInt(yearRaw, 10);
@@ -143,7 +143,7 @@ export function extractTimeFromText(
     let m: RegExpExecArray | null;
     while ((m = global.exec(text)) !== null) {
       const before = text.slice(Math.max(0, m.index - 3), m.index);
-      if (re.source.includes(':') && /\d[./]\d$/.test(before)) {
+      if (re.source.includes(':') && /\d[./-]\d$/.test(before)) {
         continue;
       }
       const hour = parseInt(m[1], 10);

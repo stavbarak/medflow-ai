@@ -76,4 +76,10 @@ describe('classifyWakePayload', () => {
     expect(looksLikeAddingToExisting('תוסיף ששירי תיקח אותו')).toBe(true);
     expect(looksLikeAddingToExisting('תוסיף תור לאבא ב-14.7')).toBe(false);
   });
+
+  it('detects transport update with hyphen date', () => {
+    const payload =
+      'תעדכן שבתור ב 14-7 בסוף שגיא יסיע ולא שירי';
+    expect(classifyWakePayload(payload)).toBe('update');
+  });
 });

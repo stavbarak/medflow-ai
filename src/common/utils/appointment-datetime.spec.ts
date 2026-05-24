@@ -1,6 +1,7 @@
 import {
   formatAppointmentWhenHebrew,
   getJerusalemParts,
+  listDateMatchesInText,
   parseAppointmentWhenFromText,
   textHasExplicitTime,
 } from './appointment-datetime';
@@ -48,6 +49,28 @@ describe('parseAppointmentWhenFromText', () => {
     expect(parts.year).toBe(2027);
     expect(parts.month).toBe(1);
     expect(parts.day).toBe(15);
+  });
+
+  it('parses hyphen-separated dates like 14-7', () => {
+    const r = parseAppointmentWhenFromText(
+      'תעדכן שבתור ב 14-7 בסוף שגיא יסיע',
+      MAY_20_2026,
+    );
+    expect(r).not.toBeNull();
+    const parts = getJerusalemParts(new Date(r!.dateTime));
+    expect(parts.day).toBe(14);
+    expect(parts.month).toBe(7);
+    expect(parts.year).toBe(2026);
+  });
+});
+
+describe('listDateMatchesInText', () => {
+  it('finds 14-7 for transport update messages', () => {
+    expect(
+      listDateMatchesInText(
+        'תעדכן שבתור ב 14-7 בסוף שגיא יסיע ולא שירי',
+      ),
+    ).toEqual([{ day: 14, month: 7, yearRaw: undefined }]);
   });
 });
 

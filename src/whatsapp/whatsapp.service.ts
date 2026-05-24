@@ -455,10 +455,6 @@ export class WhatsappService {
       return { status: 'resolved' as const, appointment: matched };
     }
 
-    const recent = await this.appointments.findMostRecentlyCreated();
-    if (recent) {
-      return { status: 'resolved' as const, appointment: recent };
-    }
     return { status: 'unresolved' as const };
   }
 
