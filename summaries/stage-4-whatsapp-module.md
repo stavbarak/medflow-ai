@@ -147,7 +147,7 @@ Intent switch in `WhatsappService`:
 
 - **`GET /api/whatsapp`** — Meta verification; `hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**.
 - **`POST /api/whatsapp`** — inbound Cloud API payloads; **HMAC** on `X-Hub-Signature-256` when **`WHATSAPP_APP_SECRET`** is set. Nest boots with **`rawBody: true`** so signature verification uses raw bytes.
-- **Allowlist gate** — sender must be in `AllowedPhone` / `ALLOWED_PHONE_NUMBERS`. No web registration required for WhatsApp (family can message immediately once their number is allowlisted).
+- **Allowlist gate** — sender must be in `FamilyMember` / `ALLOWED_PHONE_NUMBERS` env. No web registration required for WhatsApp (family can message once their phone is on the roster).
 - **Full CRUD-style intents** — create, update (with appointment matching), cancel, list, Q&A—not “always create” anymore.
 - **Outbound** — Graph API **`v22.0`** when tokens are set; otherwise log `[WhatsApp לא מוגדר]` for local dev.
 - **1:1 family bot** — each allowlisted member messages the business number with `חנטריש`. Groups API was not used; see [WhatsApp Groups (unused)](whatsapp-groups-setup.md).
@@ -160,7 +160,7 @@ Meta does **not** provide a production “allowed phones” list for your busine
 
 | Layer | Where | What |
 |-------|--------|------|
-| Allowlist | `PhoneAllowlistService` | `ALLOWED_PHONE_NUMBERS` env **or** `AllowedPhone` table |
+| Allowlist | `FamilyMemberService` | `ALLOWED_PHONE_NUMBERS` env **or** `FamilyMember` table |
 | Wake word | `dispatchMessage` | Must include `חנטריש` |
 
 **Web app** still requires allowlist **and** **הרשמה** (password). WhatsApp only checks the allowlist.

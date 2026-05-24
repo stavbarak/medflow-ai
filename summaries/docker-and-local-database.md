@@ -33,6 +33,18 @@ We optimized for **repeatable first run** in a learning repo, not for minimal di
 - **Host port** is whatever you map (e.g. `5434:5432`).
 - Your **Nest app runs on the host** (or in another container later) and connects to **`localhost:<host-port>`**.
 
+## Family roster in the database
+
+After migrate + seed, open **`FamilyMember`** (not the old `AllowedPhone` table). Each row is one person: phone, Hebrew `displayName`, `gender`. Web logins live in **`User`** and point at `familyMemberId`.
+
+Set roster data in `.env`:
+
+```env
+ALLOWED_PHONE_NUMBERS=972521234567:שם:female,972529876543:שם2:male
+```
+
+Then `npm run prisma:seed`. Full ER diagrams and flows: [**Database schema & connections**](database-schema-and-connections.md).
+
 ---
 
-*Next: [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md) (outside the repo, but very human) · [Deployment](deployment-railway-and-spa.md)*
+*Next: [Database schema & connections](database-schema-and-connections.md) · [Meta / WhatsApp developer setup](meta-whatsapp-developer-setup.md) · [Deployment](deployment-railway-and-spa.md)*
