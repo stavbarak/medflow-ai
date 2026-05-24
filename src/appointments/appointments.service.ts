@@ -1,25 +1,39 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { jerusalemCalendarDayRange } from '../common/utils/appointment-datetime';
+import {
+  transportUserDisplay,
+  transportUserSelect,
+} from '../common/utils/user-profile';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 
 const appointmentInclude = {
-  responsibleUser: {
-    select: { id: true, name: true, phoneNumber: true, role: true },
-  },
-  transportUser: {
-    select: { id: true, name: true, gender: true, phoneNumber: true },
-  },
+  responsibleUser: { select: transportUserSelect },
+  transportUser: { select: transportUserSelect },
   requirements: true,
 } as const;
+
+function mapAppointment<T extends { responsibleUser?: unknown; transportUser?: unknown }>(
+  row: T,
+) {
+  const r = row as T & {
+    responsibleUser?: Parameters<typeof transportUserDisplay>[0];
+    transportUser?: Parameters<typeof transportUserDisplay>[0];
+  };
+  return {
+    ...row,
+    responsibleUser: transportUserDisplay(r.responsibleUser),
+    transportUser: transportUserDisplay(r.transportUser),
+  };
+}
 
 @Injectable()
 export class AppointmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateAppointmentDto) {
-    return this.prisma.appointment.create({
+  async create(dto: CreateAppointmentDto) {
+    const row = await this.prisma.appointment.create({
       data: {
         title: dto.title,
         dateTime: new Date(dto.dateTime),
@@ -31,13 +45,15 @@ export class AppointmentsService {
       },
       include: appointmentInclude,
     });
+    return mapAppointment(row);
   }
 
-  findAll() {
-    return this.prisma.appointment.findMany({
+  async findAll() {
+    const rows = await this.prisma.appointment.findMany({
       orderBy: { dateTime: 'asc' },
       include: appointmentInclude,
     });
+    return rows.map(mapAppointment);
   }
 
   async findOne(id: string) {
@@ -48,12 +64,12 @@ export class AppointmentsService {
     if (!row) {
       throw new NotFoundException('תור לא נמצא');
     }
-    return row;
+    return mapAppointment(row);
   }
 
   async update(id: string, dto: UpdateAppointmentDto) {
     await this.ensureExists(id);
-    return this.prisma.appointment.update({
+    const row = await this.prisma.appointment.update({
       where: { id },
       data: {
         title: dto.title,
@@ -67,24 +83,27 @@ export class AppointmentsService {
       },
       include: appointmentInclude,
     });
+    return mapAppointment(row);
   }
 
   async remove(id: string) {
     await this.ensureExists(id);
-    return this.prisma.appointment.delete({
+    const row = await this.prisma.appointment.delete({
       where: { id },
       include: appointmentInclude,
     });
+    return mapAppointment(row);
   }
 
-  upcoming(fromIso?: string, limit = 20) {
+  async upcoming(fromIso?: string, limit = 20) {
     const from = fromIso ? new Date(fromIso) : new Date();
-    return this.prisma.appointment.findMany({
+    const rows = await this.prisma.appointment.findMany({
       where: { dateTime: { gte: from } },
       orderBy: { dateTime: 'asc' },
       take: Math.min(Math.max(limit, 1), 100),
       include: appointmentInclude,
     });
+    return rows.map(mapAppointment);
   }
 
   async next() {
@@ -95,24 +114,25 @@ export class AppointmentsService {
       take: 1,
       include: appointmentInclude,
     });
-    return rows[0] ?? null;
+    return rows[0] ? mapAppointment(rows[0]) : null;
   }
 
-  /** Appointments on the same calendar day in Asia/Jerusalem as `day`. */
-  findOnCalendarDay(day: Date) {
+  async findOnCalendarDay(day: Date) {
     const { start, end } = jerusalemCalendarDayRange(day);
-    return this.prisma.appointment.findMany({
+    const rows = await this.prisma.appointment.findMany({
       where: { dateTime: { gte: start, lt: end } },
       orderBy: { dateTime: 'asc' },
       include: appointmentInclude,
     });
+    return rows.map(mapAppointment);
   }
 
-  findMostRecentlyCreated() {
-    return this.prisma.appointment.findFirst({
+  async findMostRecentlyCreated() {
+    const row = await this.prisma.appointment.findFirst({
       orderBy: { createdAt: 'desc' },
       include: appointmentInclude,
     });
+    return row ? mapAppointment(row) : null;
   }
 
   private async ensureExists(id: string) {

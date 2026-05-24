@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PhoneAllowlistService } from '../../phone-allowlist/phone-allowlist.service';
+import { toPublicUser, userWithMemberSelect } from '../../common/utils/user-profile';
+import { FamilyMemberService } from '../../phone-allowlist/family-member.service';
 import { JwtPayload } from '../../common/types/jwt-payload.interface';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 
@@ -12,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly allowlist: PhoneAllowlistService,
+    private readonly familyMembers: FamilyMemberService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -24,18 +25,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      select: userWithMemberSelect,
     });
     if (!user) {
       throw new UnauthorizedException('משתמש לא נמצא');
     }
-    if (!(await this.allowlist.isAllowed(user.phoneNumber))) {
+    if (!(await this.familyMembers.isAllowed(user.familyMember.phoneNumber))) {
       throw new UnauthorizedException('משתמש לא נמצא');
     }
+    const publicUser = toPublicUser(user);
     return {
-      id: user.id,
-      name: user.name,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
+      id: publicUser.id,
+      name: publicUser.name,
+      phoneNumber: publicUser.phoneNumber,
+      role: publicUser.role,
     };
   }
 }

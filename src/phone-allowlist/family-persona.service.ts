@@ -13,34 +13,20 @@ import {
 export class FamilyPersonaService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Roster for AI prompts (allowlist labels + registered users). */
   async getPersonas(): Promise<FamilyPersona[]> {
-    const byName = new Map<string, FamilyPersona>();
-
-    const allowed = await this.prisma.allowedPhone.findMany({
-      where: { gender: { not: null } },
-      select: { label: true, gender: true, phoneNumber: true },
+    const members = await this.prisma.familyMember.findMany({
+      select: {
+        displayName: true,
+        gender: true,
+        user: { select: { id: true } },
+      },
+      orderBy: { displayName: 'asc' },
     });
-    for (const row of allowed) {
-      const name = personaNameFromLabel(row.label);
-      if (name && row.gender) {
-        byName.set(name, { name, gender: row.gender });
-      }
-    }
-
-    const users = await this.prisma.user.findMany({
-      select: { id: true, name: true, gender: true },
-    });
-    for (const u of users) {
-      const name = u.name.trim();
-      if (name.length >= 2 && u.gender) {
-        byName.set(name, { name, gender: u.gender, userId: u.id });
-      }
-    }
-
-    return [...byName.values()].sort((a, b) =>
-      a.name.localeCompare(b.name, 'he'),
-    );
+    return members.map((m) => ({
+      name: personaNameFromLabel(m.displayName) ?? m.displayName,
+      gender: m.gender,
+      userId: m.user?.id,
+    }));
   }
 
   async getPromptBlock(): Promise<string> {
@@ -48,42 +34,42 @@ export class FamilyPersonaService {
   }
 
   async findGenderForPhone(phoneNumber: string): Promise<Gender | null> {
-    const row = await this.prisma.allowedPhone.findUnique({
+    const row = await this.prisma.familyMember.findUnique({
       where: { phoneNumber },
       select: { gender: true },
     });
     return row?.gender ?? null;
   }
 
-  /** Resolve driver name from extraction to a registered User when possible. */
   async findUserByDriverName(driverName: string) {
     const hint = driverName.trim();
     if (!hint) {
       return null;
     }
 
-    const users = await this.prisma.user.findMany({
-      select: { id: true, name: true, gender: true, phoneNumber: true },
+    const members = await this.prisma.familyMember.findMany({
+      select: {
+        displayName: true,
+        phoneNumber: true,
+        gender: true,
+        user: {
+          select: { id: true },
+        },
+      },
     });
-    for (const u of users) {
-      if (namesMatch(hint, u.name)) {
-        return u;
-      }
-    }
 
-    const allowed = await this.prisma.allowedPhone.findMany({
-      select: { label: true, phoneNumber: true },
-    });
-    for (const row of allowed) {
-      const labelName = personaNameFromLabel(row.label);
-      if (labelName && namesMatch(hint, labelName)) {
-        const user = await this.prisma.user.findUnique({
-          where: { phoneNumber: row.phoneNumber },
-          select: { id: true, name: true, gender: true, phoneNumber: true },
-        });
-        if (user) {
-          return user;
-        }
+    for (const m of members) {
+      const name = personaNameFromLabel(m.displayName) ?? m.displayName;
+      if (!namesMatch(hint, name)) {
+        continue;
+      }
+      if (m.user) {
+        return {
+          id: m.user.id,
+          name,
+          phoneNumber: m.phoneNumber,
+          gender: m.gender,
+        };
       }
     }
 
@@ -92,7 +78,7 @@ export class FamilyPersonaService {
 
   async genderForDriverName(driverName: string): Promise<Gender | null> {
     const user = await this.findUserByDriverName(driverName);
-    if (user?.gender) {
+    if (user) {
       return user.gender;
     }
     const personas = await this.getPersonas();
@@ -100,10 +86,6 @@ export class FamilyPersonaService {
     return match?.gender ?? null;
   }
 
-  /**
-   * Map AI extraction to DB fields: transportUserId + transportNotes.
-   * Falls back to legacy single "transport" string when model returns old shape.
-   */
   async resolveTransportFromExtraction(input: {
     transportDriver?: string | null;
     transportNotes?: string | null;

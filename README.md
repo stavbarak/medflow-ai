@@ -37,7 +37,7 @@ The bot is implemented in [`src/whatsapp/`](src/whatsapp/). It uses the **same**
 |----------|---------|
 | **Webhook** | `GET /api/whatsapp` — Meta verification (`hub.verify_token` must match **`WHATSAPP_VERIFY_TOKEN`**). `POST /api/whatsapp` — inbound messages (expects Meta **WhatsApp Cloud API** JSON). |
 | **Signature** | If **`WHATSAPP_APP_SECRET`** is set, `X-Hub-Signature-256` is verified (requires Nest `rawBody`, already enabled). If unset, signature check is skipped (dev only). |
-| **Who can write** | Sender must be on the **allowlist** (`AllowedPhone` table or `ALLOWED_PHONE_NUMBERS` env). Unknown → Hebrew rejection. Web login still requires **register** + allowlist. |
+| **Who can write** | Sender must be on the **family roster** (`FamilyMember` table or `ALLOWED_PHONE_NUMBERS` env). Unknown → Hebrew rejection. Web login links a `User` to one `FamilyMember`. |
 | **Routing** | Messages that look like **questions** (e.g. end with `?`, or Hebrew question-style) → grounded **`QueryService`**. Other text → **AI extraction** → new **appointment** (+ optional **requirements**). |
 | **Outbound** | If **`WHATSAPP_ACCESS_TOKEN`** and **`WHATSAPP_PHONE_NUMBER_ID`** are set, replies are sent via Graph API. If either is missing, the intended reply is **only logged** (`[WhatsApp לא מוגדר]`) — useful for local testing without Meta tokens. |
 
@@ -127,35 +127,41 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
 - **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
 
 ```sql
--- replace YOUR_PHONE with your normalized number (972…), or try both 972… and +972…
+-- replace YOUR_PHONE with normalized 972… (no +)
 DELETE FROM "PasswordResetToken" WHERE "userId" IN (
-  SELECT id FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE')
+  SELECT u.id FROM "User" u
+  JOIN "FamilyMember" fm ON fm.id = u."familyMemberId"
+  WHERE fm."phoneNumber" = 'YOUR_PHONE'
 );
 DELETE FROM "MedicalDocument" WHERE "uploadedByUserId" IN (
-  SELECT id FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE')
+  SELECT u.id FROM "User" u
+  JOIN "FamilyMember" fm ON fm.id = u."familyMemberId"
+  WHERE fm."phoneNumber" = 'YOUR_PHONE'
 );
-DELETE FROM "User" WHERE "phoneNumber" IN ('YOUR_PHONE', '+YOUR_PHONE');
+DELETE FROM "User" WHERE "familyMemberId" IN (
+  SELECT id FROM "FamilyMember" WHERE "phoneNumber" = 'YOUR_PHONE'
+);
 ```
 
 Then use **הרשמה** in the app with a new password.
 
-#### 6. Seed allowlist (one-off, no phone numbers in git)
+#### 6. Seed family roster (one-off, no phone numbers in git)
 
 Set on the **API** service (and in local `.env`):
 
-- `ALLOWED_PHONE_NUMBERS` — comma-separated numbers only
-- `FAMILY_ALLOWLIST` — `phone:label:gender` per person (see [`.env.example`](.env.example))
+- `ALLOWED_PHONE_NUMBERS` — `phone:שם:male|female` per person (see [`.env.example`](.env.example))
 - `PATIENT_PHONE` — dad’s number for WhatsApp second-person (אתה/לך)
 
-After first deploy, open the API service → **Shell** (or Railway CLI):
+After deploy, from your Mac (with [Railway CLI](https://docs.railway.com/cli)):
 
 ```bash
-npm run prisma:seed
+railway link
+railway run npm run prisma:seed
 ```
 
-Or locally: `npm run prisma:seed` with the same variables in `.env`.
+Or locally: `npm run prisma:seed` with the same variable in `.env`.
 
-Optional SQL templates (copy locally, never commit): `scripts/seed-family-allowlist.example.sql`.
+This fills the `FamilyMember` table (name + gender live here once; app `User` is only login).
 
 #### 6. Deploy the SPA elsewhere (optional)
 

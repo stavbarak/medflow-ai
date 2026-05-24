@@ -1,51 +1,27 @@
-import { Gender, PrismaClient } from '@prisma/client';
-import { parseFamilyAllowlistEnv } from '../src/common/utils/family-allowlist-env';
-import { normalizeIsraeliPhone } from '../src/common/utils/phone';
+import { PrismaClient } from '@prisma/client';
+import { parseAllowedPhoneNumbersEnv } from '../src/common/utils/family-roster-env';
 
 const prisma = new PrismaClient();
 
-/** Upsert phones from ALLOWED_PHONE_NUMBERS (numbers only). */
-async function seedAllowlistFromEnv() {
+/** Upsert family roster from ALLOWED_PHONE_NUMBERS (phone:name:gender per person). */
+async function seedFamilyFromEnv() {
   const raw = process.env.ALLOWED_PHONE_NUMBERS?.trim();
   if (!raw) {
     return 0;
   }
   let count = 0;
-  for (const part of raw.split(',')) {
-    const phoneNumber = normalizeIsraeliPhone(part.trim());
-    if (!phoneNumber) {
-      continue;
-    }
-    await prisma.allowedPhone.upsert({
-      where: { phoneNumber },
-      create: { phoneNumber },
-      update: {},
-    });
-    count += 1;
-  }
-  return count;
-}
-
-/** Upsert label + gender from FAMILY_ALLOWLIST (phone:label:gender per entry). */
-async function seedFamilyAllowlistFromEnv() {
-  const raw = process.env.FAMILY_ALLOWLIST?.trim();
-  if (!raw) {
-    return 0;
-  }
-  let count = 0;
-  for (const entry of parseFamilyAllowlistEnv(raw)) {
-    const gender = entry.gender as Gender | undefined;
-    await prisma.allowedPhone.upsert({
+  for (const entry of parseAllowedPhoneNumbersEnv(raw)) {
+    await prisma.familyMember.upsert({
       where: { phoneNumber: entry.phoneNumber },
       create: {
-        id: `allow-${entry.phoneNumber}`,
+        id: `fm-${entry.phoneNumber}`,
         phoneNumber: entry.phoneNumber,
-        label: entry.label,
-        gender,
+        displayName: entry.displayName,
+        gender: entry.gender,
       },
       update: {
-        label: entry.label,
-        gender,
+        displayName: entry.displayName,
+        gender: entry.gender,
       },
     });
     count += 1;
@@ -54,16 +30,12 @@ async function seedFamilyAllowlistFromEnv() {
 }
 
 async function main() {
-  const nPhones = await seedAllowlistFromEnv();
-  const nFamily = await seedFamilyAllowlistFromEnv();
-  const total = nPhones + nFamily;
-  if (total > 0) {
-    console.log(
-      `MedFlow seed: ${nPhones} phone(s) from ALLOWED_PHONE_NUMBERS, ${nFamily} from FAMILY_ALLOWLIST.`,
-    );
+  const n = await seedFamilyFromEnv();
+  if (n > 0) {
+    console.log(`MedFlow seed: upserted ${n} family member(s) from ALLOWED_PHONE_NUMBERS.`);
   } else {
     console.log(
-      'MedFlow seed: no rows added. Set ALLOWED_PHONE_NUMBERS and/or FAMILY_ALLOWLIST in .env (see .env.example).',
+      'MedFlow seed: no rows added. Set ALLOWED_PHONE_NUMBERS in .env (see .env.example).',
     );
   }
 }

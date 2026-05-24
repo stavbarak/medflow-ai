@@ -1,12 +1,10 @@
--- Optional: copy to seed-family-allowlist.sql (gitignored) and fill real numbers.
--- Prefer FAMILY_ALLOWLIST in .env — see .env.example and npm run prisma:seed
+-- Optional manual seed (prefer ALLOWED_PHONE_NUMBERS + npm run prisma:seed).
+-- Copy to seed-family-allowlist.sql (gitignored) if you prefer SQL.
 
-DELETE FROM "AllowedPhone" WHERE "phoneNumber" LIKE '+%';
-
-INSERT INTO "AllowedPhone" ("id", "phoneNumber", "label", "gender")
+INSERT INTO "FamilyMember" ("id", "phoneNumber", "displayName", "gender")
 VALUES
-  ('allow-972521234567', '972521234567', 'שם', 'female'),
-  ('allow-972529876543', '972529876543', 'שם אחר', 'male')
+  ('fm-972521234567', '972521234567', 'דוגמה', 'female'),
+  ('fm-972529876543', '972529876543', 'דוגמה2', 'male')
 ON CONFLICT ("phoneNumber") DO UPDATE SET
-  "label" = EXCLUDED."label",
+  "displayName" = EXCLUDED."displayName",
   "gender" = EXCLUDED."gender";

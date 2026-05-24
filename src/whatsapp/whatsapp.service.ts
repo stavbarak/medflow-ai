@@ -45,7 +45,7 @@ import {
 import { extractInboundWhatsappMessages } from './whatsapp-inbound';
 import type { WhatsappSendTarget } from './whatsapp-send-target';
 import { individualTarget } from './whatsapp-send-target';
-import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
+import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
@@ -65,7 +65,7 @@ export class WhatsappService {
     private readonly appointments: AppointmentsService,
     private readonly requirements: RequirementsService,
     private readonly query: QueryService,
-    private readonly allowlist: PhoneAllowlistService,
+    private readonly familyMembers: FamilyMemberService,
     private readonly familyPersonas: FamilyPersonaService,
   ) {}
 
@@ -138,7 +138,7 @@ export class WhatsappService {
       return;
     }
 
-    if (!(await this.allowlist.isAllowed(message.senderWaId))) {
+    if (!(await this.familyMembers.isAllowed(message.senderWaId))) {
       this.logger.debug(`Rejected unknown phone ${message.senderWaId}`);
       await this.safeSend(message.replyTo, PHONE_NOT_ON_ALLOWLIST_HE);
       return;

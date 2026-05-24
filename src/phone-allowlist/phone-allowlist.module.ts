@@ -1,10 +1,10 @@
 import { Global, Module } from '@nestjs/common';
+import { FamilyMemberService } from './family-member.service';
 import { FamilyPersonaService } from './family-persona.service';
-import { PhoneAllowlistService } from './phone-allowlist.service';
 
 @Global()
 @Module({
-  providers: [PhoneAllowlistService, FamilyPersonaService],
-  exports: [PhoneAllowlistService, FamilyPersonaService],
+  providers: [FamilyMemberService, FamilyPersonaService],
+  exports: [FamilyMemberService, FamilyPersonaService],
 })
 export class PhoneAllowlistModule {}

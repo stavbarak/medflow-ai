@@ -8,10 +8,14 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
+import { Gender } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
-import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
-import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
+import {
+  toPublicUser,
+  userWithMemberSelect,
+} from '../common/utils/user-profile';
+import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -32,7 +36,6 @@ const FORGOT_PASSWORD_SENT =
 const FORGOT_PASSWORD_COOLDOWN =
   'בקשת קוד כבר נשלחה. נסה שוב בעוד דקה.';
 
-/** Shown when plain-text WhatsApp is blocked (>24h since user messaged the business line). */
 const FORGOT_PASSWORD_REENGAGE =
   'לא ניתן לשלוח קוד ב-WhatsApp ללא תבנית OTP. קודם שלח הודעה (למשל "חנטריש") למספר העסקי +972-53-571-2070, המתן כמה שניות, ואז נסה שוב. לפתרון קבוע: אשר תבנית Authentication ב-Meta והגדר WHATSAPP_OTP_TEMPLATE_NAME ב-Railway.';
 
@@ -45,32 +48,45 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly whatsapp: WhatsappService,
-    private readonly allowlist: PhoneAllowlistService,
-    private readonly familyPersonas: FamilyPersonaService,
+    private readonly familyMembers: FamilyMemberService,
   ) {}
 
   async register(dto: RegisterDto) {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
-    await this.allowlist.assertAllowed(phoneNumber);
-    const existing = await this.prisma.user.findUnique({
-      where: { phoneNumber },
-    });
-    if (existing) {
+    await this.familyMembers.assertAllowed(phoneNumber);
+
+    const member = await this.familyMembers.findOrCreateFromEnv(phoneNumber);
+    if (!member) {
+      throw new UnauthorizedException(
+        'מספר זה לא מוגדר ברשימת המשפחה. הוסף אותו ל-ALLOWED_PHONE_NUMBERS והרץ seed.',
+      );
+    }
+    if (member.user) {
       throw new ConflictException('מספר טלפון כבר רשום במערכת');
     }
-    const gender =
-      dto.gender ?? (await this.familyPersonas.findGenderForPhone(phoneNumber));
+
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    const user = await this.prisma.user.create({
-      data: {
-        name: dto.name,
-        phoneNumber,
-        passwordHash,
-        role: dto.role,
-        gender,
-      },
+    const gender: Gender = dto.gender ?? member.gender;
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      await tx.familyMember.update({
+        where: { id: member.id },
+        data: {
+          displayName: dto.name.trim() || member.displayName,
+          gender,
+        },
+      });
+      return tx.user.create({
+        data: {
+          familyMemberId: member.id,
+          passwordHash,
+          role: dto.role,
+        },
+        select: userWithMemberSelect,
+      });
     });
-    return this.buildAuthResponse(user.id, user.phoneNumber, user);
+
+    return this.buildAuthResponse(user);
   }
 
   async login(dto: LoginDto) {
@@ -78,17 +94,20 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
-    if (!(await this.allowlist.isAllowed(user.phoneNumber))) {
+    if (!(await this.familyMembers.isAllowed(user.familyMember.phoneNumber))) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
-    return this.buildAuthResponse(user.id, user.phoneNumber, user);
+    const withMember = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: userWithMemberSelect,
+    });
+    return this.buildAuthResponse(withMember);
   }
 
-  /** Always returns the same message (do not leak whether the phone is registered). */
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
     message: string;
     codeSent: boolean;
@@ -100,7 +119,7 @@ export class AuthService {
     }
 
     const user = await this.findUserByPhone(dto.phoneNumber);
-    if (!user || !(await this.allowlist.isAllowed(phoneNumber))) {
+    if (!user || !(await this.familyMembers.isAllowed(phoneNumber))) {
       return { message: FORGOT_PASSWORD_ACK_UNKNOWN, codeSent: false };
     }
 
@@ -142,7 +161,7 @@ export class AuthService {
   async resetPassword(dto: ResetPasswordDto) {
     const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const user = await this.findUserByPhone(dto.phoneNumber);
-    if (!user || !(await this.allowlist.isAllowed(phoneNumber))) {
+    if (!user || !(await this.familyMembers.isAllowed(phoneNumber))) {
       throw new BadRequestException('קוד אימות לא תקין או שפג תוקפו');
     }
 
@@ -173,7 +192,11 @@ export class AuthService {
       }),
     ]);
 
-    return this.buildAuthResponse(user.id, phoneNumber, user);
+    const withMember = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: userWithMemberSelect,
+    });
+    return this.buildAuthResponse(withMember);
   }
 
   private normalizePhone(input: string): string {
@@ -181,36 +204,21 @@ export class AuthService {
   }
 
   private async findUserByPhone(input: string) {
-    const normalized = this.normalizePhone(input);
-    return this.prisma.user.findFirst({
-      where: {
-        OR: [{ phoneNumber: normalized }, { phoneNumber: input.trim() }],
-      },
+    const phoneNumber = this.normalizePhone(input);
+    const member = await this.prisma.familyMember.findUnique({
+      where: { phoneNumber },
+      include: { user: true },
     });
+    return member?.user ?? null;
   }
 
-  private buildAuthResponse(
-    userId: string,
-    phoneNumber: string,
-    user: {
-      id: string;
-      name: string;
-      phoneNumber: string;
-      role: string | null;
-      gender?: string | null;
-    },
-  ) {
-    const payload: JwtPayload = { sub: userId, phoneNumber };
-    const access_token = this.jwt.sign(payload);
-    return {
-      access_token,
-      user: {
-        id: user.id,
-        name: user.name,
-        phoneNumber: user.phoneNumber,
-        role: user.role,
-        gender: user.gender ?? null,
-      },
+  private buildAuthResponse(user: Parameters<typeof toPublicUser>[0]) {
+    const publicUser = toPublicUser(user);
+    const payload: JwtPayload = {
+      sub: publicUser.id,
+      phoneNumber: publicUser.phoneNumber,
     };
+    const access_token = this.jwt.sign(payload);
+    return { access_token, user: publicUser };
   }
 }

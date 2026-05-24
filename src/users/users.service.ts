@@ -1,6 +1,10 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
+import {
+  toPublicUser,
+  userWithMemberSelect,
+} from '../common/utils/user-profile';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
@@ -8,63 +12,59 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByPhone(phoneInput: string) {
-    const normalized = normalizeIsraeliPhone(phoneInput.trim());
-    return this.prisma.user.findFirst({
-      where: {
-        OR: [{ phoneNumber: normalized }, { phoneNumber: phoneInput.trim() }],
-      },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        role: true,
-        gender: true,
-      },
+    const phoneNumber = normalizeIsraeliPhone(phoneInput.trim());
+    const member = await this.prisma.familyMember.findUnique({
+      where: { phoneNumber },
+      include: { user: { select: userWithMemberSelect } },
     });
+    return member?.user ? toPublicUser(member.user) : null;
   }
 
   async findOne(id: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: userWithMemberSelect,
     });
+    return user ? toPublicUser(user) : null;
   }
 
   async update(userId: string, dto: UpdateUserDto) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, familyMemberId: true },
+    });
+
     if (dto.phoneNumber) {
-      const taken = await this.prisma.user.findFirst({
+      const phoneNumber = normalizeIsraeliPhone(dto.phoneNumber);
+      const taken = await this.prisma.familyMember.findFirst({
         where: {
-          phoneNumber: dto.phoneNumber,
-          NOT: { id: userId },
+          phoneNumber,
+          NOT: { id: user.familyMemberId },
         },
       });
       if (taken) {
         throw new ConflictException('מספר טלפון כבר בשימוש');
       }
     }
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        name: dto.name,
-        phoneNumber: dto.phoneNumber,
-        role: dto.role,
-        gender: dto.gender,
-      },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.familyMember.update({
+        where: { id: user.familyMemberId },
+        data: {
+          ...(dto.name !== undefined ? { displayName: dto.name } : {}),
+          ...(dto.phoneNumber !== undefined
+            ? { phoneNumber: normalizeIsraeliPhone(dto.phoneNumber) }
+            : {}),
+          ...(dto.gender !== undefined ? { gender: dto.gender } : {}),
+        },
+      });
+      return tx.user.update({
+        where: { id: userId },
+        data: { ...(dto.role !== undefined ? { role: dto.role } : {}) },
+        select: userWithMemberSelect,
+      });
     });
+
+    return toPublicUser(updated);
   }
 }

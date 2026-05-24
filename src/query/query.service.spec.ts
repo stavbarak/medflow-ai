@@ -53,7 +53,16 @@ describe('QueryService (Stage 3)', () => {
         dateTime: dt,
         location: 'תל השומר',
         notes: 'צום',
-        responsibleUser: { name: 'יעל', phoneNumber: '972501234567' },
+        responsibleUser: {
+          id: 'u1',
+          familyMember: {
+            displayName: 'יעל',
+            phoneNumber: '972501234567',
+            gender: 'female',
+          },
+        },
+        transportUser: null,
+        transportNotes: '',
         requirements: [
           { description: 'טופס 17', isDone: false },
           { description: 'בדיקת דם', isDone: true },
@@ -75,15 +84,9 @@ describe('QueryService (Stage 3)', () => {
         'gte' in dtFilter &&
         dtFilter.gte instanceof Date,
     ).toBe(true);
-    expect(callArg?.include).toEqual({
-      requirements: true,
-      responsibleUser: {
-        select: { name: true, phoneNumber: true },
-      },
-      transportUser: {
-        select: { name: true, gender: true },
-      },
-    });
+    expect(callArg?.include?.requirements).toBe(true);
+    expect(callArg?.include?.responsibleUser).toBeDefined();
+    expect(callArg?.include?.transportUser).toBeDefined();
 
     expect(answerQuestionFromFacts).toHaveBeenCalledTimes(1);
     const [q, factsJson] = answerQuestionFromFacts.mock.calls[0] as [

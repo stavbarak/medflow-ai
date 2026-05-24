@@ -12,24 +12,26 @@ enum Gender {
   female
 }
 
-/// Family members permitted to register and use WhatsApp (admin adds rows or ALLOWED_PHONE_NUMBERS env).
-model AllowedPhone {
+/// Family roster: one row per person (WhatsApp + optional web login).
+model FamilyMember {
   id          String   @id @default(uuid())
   phoneNumber String   @unique
-  label       String?
-  gender      Gender?
+  displayName String
+  gender      Gender
   createdAt   DateTime @default(now())
+
+  user User?
 }
 
+/// App login linked 1:1 to a family member (same phone, no duplicate profile fields).
 model User {
-  id           String   @id @default(uuid())
-  name         String
-  phoneNumber  String   @unique
-  passwordHash String
-  role         String?
-  gender       Gender?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String       @id @default(uuid())
+  familyMemberId String       @unique
+  familyMember   FamilyMember @relation(fields: [familyMemberId], references: [id], onDelete: Cascade)
+  passwordHash   String
+  role           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   transportFor        Appointment[]        @relation("AppointmentTransport")
   responsibleFor      Appointment[]        @relation("AppointmentResponsible")
@@ -54,7 +56,6 @@ model Appointment {
   dateTime          DateTime
   location          String
   notes             String   @default("")
-  /// Optional extra ride details (מונית, תחזיר, etc.).
   transportNotes    String   @default("")
   transportUserId   String?
   transportUser     User?    @relation("AppointmentTransport", fields: [transportUserId], references: [id], onDelete: SetNull)

@@ -6,6 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { stripWakeWord } from '../common/utils/wake-word';
+import {
+  transportUserDisplay,
+  transportUserSelect,
+} from '../common/utils/user-profile';
 
 @Injectable()
 export class QueryService {
@@ -24,12 +28,8 @@ export class QueryService {
       take: 15,
       include: {
         requirements: true,
-        responsibleUser: {
-          select: { name: true, phoneNumber: true },
-        },
-        transportUser: {
-          select: { name: true, gender: true },
-        },
+        responsibleUser: { select: transportUserSelect },
+        transportUser: { select: transportUserSelect },
       },
     });
     return {
@@ -40,10 +40,13 @@ export class QueryService {
         dateTime: a.dateTime.toISOString(),
         location: a.location,
         notes: a.notes,
-        transportUser: a.transportUser,
+        transportUser: transportUserDisplay(a.transportUser),
         transportNotes: a.transportNotes,
-        transportDisplay: formatAppointmentTransportHebrew(a),
-        responsible: a.responsibleUser,
+        transportDisplay: formatAppointmentTransportHebrew({
+          transportUser: transportUserDisplay(a.transportUser),
+          transportNotes: a.transportNotes,
+        }),
+        responsible: transportUserDisplay(a.responsibleUser),
         requirements: a.requirements.map((r) => ({
           description: r.description,
           isDone: r.isDone,
