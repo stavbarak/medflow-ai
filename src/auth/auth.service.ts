@@ -90,11 +90,12 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
+    const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const user = await this.findUserByPhone(dto.phoneNumber);
     if (!user) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
-    if (!(await this.familyMembers.isAllowed(user.familyMember.phoneNumber))) {
+    if (!(await this.familyMembers.isAllowed(phoneNumber))) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
