@@ -11,6 +11,7 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
 import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
+import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -45,6 +46,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly whatsapp: WhatsappService,
     private readonly allowlist: PhoneAllowlistService,
+    private readonly familyPersonas: FamilyPersonaService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -56,6 +58,8 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('מספר טלפון כבר רשום במערכת');
     }
+    const gender =
+      dto.gender ?? (await this.familyPersonas.findGenderForPhone(phoneNumber));
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
       data: {
@@ -63,6 +67,7 @@ export class AuthService {
         phoneNumber,
         passwordHash,
         role: dto.role,
+        gender,
       },
     });
     return this.buildAuthResponse(user.id, user.phoneNumber, user);
@@ -192,6 +197,7 @@ export class AuthService {
       name: string;
       phoneNumber: string;
       role: string | null;
+      gender?: string | null;
     },
   ) {
     const payload: JwtPayload = { sub: userId, phoneNumber };
@@ -203,6 +209,7 @@ export class AuthService {
         name: user.name,
         phoneNumber: user.phoneNumber,
         role: user.role,
+        gender: user.gender ?? null,
       },
     };
   }

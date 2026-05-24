@@ -18,6 +18,7 @@ export class UsersService {
         name: true,
         phoneNumber: true,
         role: true,
+        gender: true,
       },
     });
   }
@@ -54,6 +55,7 @@ export class UsersService {
         name: dto.name,
         phoneNumber: dto.phoneNumber,
         role: dto.role,
+        gender: dto.gender,
       },
       select: {
         id: true,

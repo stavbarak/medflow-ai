@@ -6,6 +6,7 @@ import type {
   Requirement,
   User,
 } from './types';
+import { formatTransportCell } from './types';
 import './App.css';
 
 function formatWhen(iso: string): string {
@@ -33,6 +34,7 @@ export default function App() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [gender, setGender] = useState<'' | 'male' | 'female'>('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<User | null>(null);
@@ -114,6 +116,7 @@ export default function App() {
               name: name || 'משתמש',
               phoneNumber: phone,
               password,
+              ...(gender ? { gender } : {}),
             });
       const res = await api<AuthResponse>(path, {
         method: 'POST',
@@ -190,15 +193,33 @@ export default function App() {
 
           <form className="form" onSubmit={handleAuth}>
             {tab === 'register' && (
-              <label>
-                שם
-                <input
-                  value={name}
-                  onChange={(ev) => setName(ev.target.value)}
-                  placeholder="למשל: יעל"
-                  autoComplete="name"
-                />
-              </label>
+              <>
+                <label>
+                  שם
+                  <input
+                    value={name}
+                    onChange={(ev) => setName(ev.target.value)}
+                    placeholder="למשל: שירי"
+                    autoComplete="name"
+                  />
+                </label>
+                <label>
+                  מין (לניסוח נכון ב-WhatsApp)
+                  <select
+                    value={gender}
+                    onChange={(ev) =>
+                      setGender(ev.target.value as '' | 'male' | 'female')
+                    }
+                  >
+                    <option value="">לא צוין</option>
+                    <option value="female">נקבה</option>
+                    <option value="male">זכר</option>
+                  </select>
+                  <span className="field-hint">
+                    אם המספר כבר ברשימת המשפחה, המין יילקח משם אוטומטית
+                  </span>
+                </label>
+              </>
             )}
             <label>
               טלפון
@@ -320,8 +341,8 @@ export default function App() {
               <div className="title">{nextAppt.title}</div>
               <div>{formatWhen(nextAppt.dateTime)}</div>
               <div className="muted">{nextAppt.location}</div>
-              {nextAppt.transport ? (
-                <p className="transport">🚗 {nextAppt.transport}</p>
+              {formatTransportCell(nextAppt) !== '—' ? (
+                <p className="transport">🚗 {formatTransportCell(nextAppt)}</p>
               ) : null}
               {nextAppt.notes ? (
                 <p className="notes">{nextAppt.notes}</p>
@@ -386,7 +407,7 @@ export default function App() {
                     <td>{a.title}</td>
                     <td>{formatWhen(a.dateTime)}</td>
                     <td>{a.location}</td>
-                    <td className="ellipsis">{a.transport || '—'}</td>
+                    <td className="ellipsis">{formatTransportCell(a)}</td>
                     <td className="ellipsis">{a.notes || '—'}</td>
                   </tr>
                 ))}

@@ -8,6 +8,9 @@ const appointmentInclude = {
   responsibleUser: {
     select: { id: true, name: true, phoneNumber: true, role: true },
   },
+  transportUser: {
+    select: { id: true, name: true, gender: true, phoneNumber: true },
+  },
   requirements: true,
 } as const;
 
@@ -22,7 +25,8 @@ export class AppointmentsService {
         dateTime: new Date(dto.dateTime),
         location: dto.location,
         notes: dto.notes ?? '',
-        transport: dto.transport ?? '',
+        transportNotes: dto.transportNotes ?? '',
+        transportUserId: dto.transportUserId,
         responsibleUserId: dto.responsibleUserId,
       },
       include: appointmentInclude,
@@ -57,7 +61,8 @@ export class AppointmentsService {
           dto.dateTime !== undefined ? new Date(dto.dateTime) : undefined,
         location: dto.location,
         notes: dto.notes,
-        transport: dto.transport,
+        transportNotes: dto.transportNotes,
+        transportUserId: dto.transportUserId,
         responsibleUserId: dto.responsibleUserId,
       },
       include: appointmentInclude,

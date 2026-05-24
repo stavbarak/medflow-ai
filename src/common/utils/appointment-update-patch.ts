@@ -9,6 +9,7 @@ export type AdditiveUpdatePatch = {
   location?: string;
   notes?: string;
   transport?: string;
+  transportNotes?: string;
 };
 
 export type BuiltAdditiveUpdate = {

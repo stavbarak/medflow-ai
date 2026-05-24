@@ -14,6 +14,12 @@ import {
   mergeWakeAppointmentExtraction,
   type WakeAppointmentFields,
 } from './wake-appointment';
+import {
+  type PatientReplyOptions,
+  patientAnswerInstruction,
+  patientLabelForPrompt,
+} from '../common/utils/patient-address';
+import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 
 @Injectable()
 export class AiService {
@@ -22,7 +28,10 @@ export class AiService {
   /** Single-patient context for prompts (Hebrew). */
   private readonly patientLabel: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly familyPersonas: FamilyPersonaService,
+  ) {
     const key = this.config.get<string>('OPENAI_API_KEY');
     const baseURL = this.config.get<string>('OPENAI_BASE_URL');
     this.model = this.config.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';
@@ -45,32 +54,45 @@ export class AiService {
     return this.client;
   }
 
+  private async familyPersonaSuffix(): Promise<string> {
+    const block = await this.familyPersonas.getPromptBlock();
+    return block ? `\n\n${block}` : '';
+  }
+
   /**
    * Extract structured appointment fields from free Hebrew text. Output is validated before return.
    */
-  async extractAppointmentFromText(text: string): Promise<WakeAppointmentFields> {
-    return this.extractAppointmentFields(text, 'create');
+  async extractAppointmentFromText(
+    text: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<WakeAppointmentFields> {
+    return this.extractAppointmentFields(text, 'create', replyOptions);
   }
 
   /** Extract only what the user wants to add or change on an existing appointment. */
   async extractAppointmentUpdateDelta(
     text: string,
+    replyOptions?: PatientReplyOptions,
   ): Promise<WakeAppointmentFields> {
-    return this.extractAppointmentFields(text, 'update');
+    return this.extractAppointmentFields(text, 'update', replyOptions);
   }
 
   private async extractAppointmentFields(
     text: string,
     mode: 'create' | 'update',
+    replyOptions?: PatientReplyOptions,
   ): Promise<WakeAppointmentFields> {
     const openai = this.ensureClient();
-    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${this.patientLabel}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), transport (who drives / how patient gets there — e.g. "שירי תיקח ותחזיר", "יגיע במונית"), notes, requirements (array of { description }). Do NOT include dateTime.
-CRITICAL: put ride, driver, pickup, return, and accompaniment-for-travel in "transport", NOT in "notes".
-CRITICAL for notes: copy ONLY prep facts (blood tests, fasting, what to bring, email instructions). NEVER invent transportation or people not named in the message. Hebrew only.`;
-    const systemUpdate = `The user is adjusting an EXISTING appointment (${this.patientLabel}). Return JSON with optional keys:
+    const label = patientLabelForPrompt(this.patientLabel, replyOptions);
+    const personas = await this.familyPersonaSuffix();
+    const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${label}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), transportDriver (first name only of who drives, e.g. "שירי", "עדי"), transportNotes (extra ride details: מונית, תחזיר, pickup time — NOT the driver's name), notes, requirements (array of { description }). Do NOT include dateTime.
+CRITICAL: put the driver's NAME in transportDriver, NOT in notes. Put מונית/תחזיר/return details in transportNotes.
+CRITICAL for notes: copy ONLY prep facts (blood tests, fasting, what to bring). Hebrew only.${personas}`;
+    const systemUpdate = `The user is adjusting an EXISTING appointment (${label}). Return JSON with optional keys:
 - requirements (array of { description }) if any new checklist items
-- transport (string) ONLY if the message specifies ride, driver, pickup, or how they get there — return the FULL new value (replaces existing; do not append to old text)
-Do NOT include notes. Hebrew only.`;
+- transportDriver (first name only) if a new driver is specified — replaces previous driver
+- transportNotes (string) extra ride details only (מונית, תחזיר) — replaces previous transportNotes
+Do NOT include notes. Hebrew only.${personas}`;
     const completion = await openai.chat.completions.create({
       model: this.model,
       response_format: { type: 'json_object' },
@@ -111,15 +133,18 @@ Do NOT include notes. Hebrew only.`;
       dateTimeIso: string;
     },
     userMessage: string,
+    replyOptions?: PatientReplyOptions,
   ): Promise<ReconcileUpdateResult> {
     const openai = this.ensureClient();
+    const label = patientLabelForPrompt(this.patientLabel, replyOptions);
+    const personas = await this.familyPersonaSuffix();
     const completion = await openai.chat.completions.create({
       model: this.model,
       response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: `You help update ONE existing medical appointment (${this.patientLabel}) from a Hebrew WhatsApp message.
+          content: `You help update ONE existing medical appointment (${label}) from a Hebrew WhatsApp message.
 Return JSON only:
 {
   "title": optional string — visit type if user names/corrects it (e.g. ביקורת קרדיו אונקולוגיה),
@@ -130,7 +155,7 @@ Rules:
 - If user clarifies what the appointment IS (ביקורת…, פט סיטי…), set title even if existing title was generic "תור".
 - If user names a place (איכילוב…), set location even if existing was "ייקבע".
 - Never output bare "תור" or "ייקבע" as improvements.
-- Do NOT output dateTime or notes text here.`,
+- Do NOT output dateTime or notes text here.${personas}`,
         },
         {
           role: 'user',
@@ -155,8 +180,11 @@ Rules:
   async mergeAppointmentNotes(
     existingNotes: string,
     userMessage: string,
+    replyOptions?: PatientReplyOptions,
   ): Promise<string | null> {
     const openai = this.ensureClient();
+    const label = patientLabelForPrompt(this.patientLabel, replyOptions);
+    const personas = await this.familyPersonaSuffix();
     const existing = existingNotes.trim();
     const completion = await openai.chat.completions.create({
       model: this.model,
@@ -164,7 +192,7 @@ Rules:
       messages: [
         {
           role: 'system',
-          content: `You maintain Hebrew "notes" for one medical appointment (${this.patientLabel}) — preparation, what to bring, meals, reminders. NOT transport (who drives).
+          content: `You maintain Hebrew "notes" for one medical appointment (${label}) — preparation, what to bring, meals, reminders. NOT transport (who drives).
 Return JSON: { "notes": "..." } — the full updated notes text.
 
 Rules:
@@ -173,7 +201,7 @@ Rules:
 - Do NOT put ride/driver/pickup info here — that lives in a separate transport field.
 - Do not invent facts not in existing notes or the new message.
 - Short, natural Hebrew suitable for a family coordination app.
-- If the new message has nothing for notes, return { "notes": "<unchanged existing>" }.`,
+- If the new message has nothing for notes, return { "notes": "<unchanged existing>" }.${personas}`,
         },
         {
           role: 'user',
@@ -199,14 +227,20 @@ Rules:
   /**
    * Turn grounded facts JSON into a short Hebrew reply. Model must not invent facts.
    */
-  async answerQuestionFromFacts(question: string, factsJson: string) {
+  async answerQuestionFromFacts(
+    question: string,
+    factsJson: string,
+    replyOptions?: PatientReplyOptions,
+  ) {
     const openai = this.ensureClient();
+    const addressHint = patientAnswerInstruction(replyOptions);
+    const personas = await this.familyPersonaSuffix();
     const completion = await openai.chat.completions.create({
       model: this.model,
       messages: [
         {
           role: 'system',
-          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS (including transport for who drives, notes for preparation, requirements). If the answer is not in the facts, say briefly in Hebrew that it is not stored. Be concise, suitable for WhatsApp.`,
+          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS (including transport for who drives, notes for preparation, requirements). If the answer is not in the facts, say briefly in Hebrew that it is not stored. Be concise, suitable for WhatsApp.${addressHint ? ` ${addressHint}` : ''}${personas}`,
         },
         {
           role: 'user',

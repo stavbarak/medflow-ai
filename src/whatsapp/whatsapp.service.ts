@@ -50,6 +50,13 @@ import type { WhatsappSendTarget } from './whatsapp-send-target';
 import { individualTarget } from './whatsapp-send-target';
 import { PhoneAllowlistService } from '../phone-allowlist/phone-allowlist.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
+import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
+import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
+import {
+  type PatientReplyOptions,
+  replyOptionsForSender,
+  resolvePatientPhone,
+} from '../common/utils/patient-address';
 
 @Injectable()
 export class WhatsappService {
@@ -62,6 +69,7 @@ export class WhatsappService {
     private readonly requirements: RequirementsService,
     private readonly query: QueryService,
     private readonly allowlist: PhoneAllowlistService,
+    private readonly familyPersonas: FamilyPersonaService,
   ) {}
 
   verifyWebhook(
@@ -142,34 +150,59 @@ export class WhatsappService {
     this.logger.debug(
       `Wake message from ${message.senderWaId} (${message.replyTo.type})`,
     );
-    await this.replyWakeWord(message.replyTo, text);
+    await this.replyWakeWord(message.replyTo, text, message.senderWaId);
   }
 
-  private async replyWakeWord(replyTo: WhatsappSendTarget, text: string) {
+  private patientReplyOptions(senderWaId: string): PatientReplyOptions {
+    return replyOptionsForSender(
+      senderWaId,
+      resolvePatientPhone(this.config.get<string>('PATIENT_PHONE')),
+    );
+  }
+
+  private async replyWakeWord(
+    replyTo: WhatsappSendTarget,
+    text: string,
+    senderWaId: string,
+  ) {
     const payload = stripWakeWord(text);
     const intent = classifyWakePayload(payload);
+    const replyOpts = this.patientReplyOptions(senderWaId);
 
     try {
       switch (intent) {
         case 'list':
           await this.safeSend(
             replyTo,
-            this.query.formatFactsDumpHebrew(
+            await this.query.formatFactsDumpHebrew(
               await this.query.buildFactsPayload(),
+              replyOpts,
             ),
           );
           return;
         case 'question':
-          await this.safeSend(replyTo, await this.query.answerWakeWord(text));
+          await this.safeSend(
+            replyTo,
+            await this.query.answerWakeWord(text, replyOpts),
+          );
           return;
         case 'cancel':
-          await this.safeSend(replyTo, await this.handleWakeCancel(payload));
+          await this.safeSend(
+            replyTo,
+            await this.handleWakeCancel(payload, replyOpts),
+          );
           return;
         case 'create':
-          await this.safeSend(replyTo, await this.handleWakeCreate(payload));
+          await this.safeSend(
+            replyTo,
+            await this.handleWakeCreate(payload, replyOpts),
+          );
           return;
         case 'update':
-          await this.safeSend(replyTo, await this.handleWakeUpdate(payload));
+          await this.safeSend(
+            replyTo,
+            await this.handleWakeUpdate(payload, replyOpts),
+          );
           return;
       }
     } catch (err) {
@@ -181,10 +214,18 @@ export class WhatsappService {
     }
   }
 
-  private async handleWakeCreate(payload: string): Promise<string> {
-    const extracted = await this.ai.extractAppointmentFromText(payload);
+  private async handleWakeCreate(
+    payload: string,
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
+    const extracted = await this.ai.extractAppointmentFromText(
+      payload,
+      replyOpts,
+    );
     if (!extracted.dateTime) {
-      return 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
+      return replyOpts.addressSecondPerson
+        ? 'לא הצלחתי לזהות תאריך. נסו: חנטריש, יש לך תור ב-27.5 בבית חולים X'
+        : 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
     }
 
     const inferred = inferWakeAppointmentFields(payload);
@@ -196,12 +237,19 @@ export class WhatsappService {
       extracted.location?.trim() ||
       inferred.location ||
       'ייקבע';
+    const resolvedTransport =
+      await this.familyPersonas.resolveTransportFromExtraction({
+        transportDriver: extracted.transportDriver,
+        transportNotes: extracted.transportNotes,
+        legacyTransport: extracted.transport,
+      });
     const created = await this.appointments.create({
       title,
       dateTime: extracted.dateTime,
       location,
       notes: extracted.notes?.trim() ?? '',
-      transport: extracted.transport?.trim() ?? '',
+      transportUserId: resolvedTransport.transportUserId ?? undefined,
+      transportNotes: resolvedTransport.transportNotes,
     });
 
     if (extracted.requirements?.length) {
@@ -217,25 +265,30 @@ export class WhatsappService {
       extracted.hasTime,
     );
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
-    const transportNote = created.transport
-      ? ` 🚗 ${created.transport}`
-      : '';
-    return `הוספתי תור: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
+    const transportNote = await this.formatTransportNote(created, replyOpts);
+    const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
+    return `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
   }
 
-  private async handleWakeUpdate(payload: string): Promise<string> {
+  private async handleWakeUpdate(
+    payload: string,
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
     if (looksLikeNewAppointment(payload)) {
-      return this.handleWakeCreate(payload);
+      return this.handleWakeCreate(payload, replyOpts);
     }
 
-    const extracted = await this.ai.extractAppointmentUpdateDelta(payload);
+    const extracted = await this.ai.extractAppointmentUpdateDelta(
+      payload,
+      replyOpts,
+    );
     const lookup = await this.resolveAppointmentForUpdate(payload);
     if (lookup.status === 'ambiguous') {
       return formatAmbiguousUpdatePromptHebrew(lookup.appointments);
     }
     if (lookup.status === 'unresolved') {
       if (looksLikeNewAppointment(payload) || parseAppointmentWhenFromText(payload)) {
-        return this.handleWakeCreate(payload);
+        return this.handleWakeCreate(payload, replyOpts);
       }
       return 'לא מצאתי תור לעדכון. נסו לציין תאריך (למשל 25.5) או שם מרפאה.';
     }
@@ -249,6 +302,7 @@ export class WhatsappService {
         dateTimeIso: new Date(target.dateTime).toISOString(),
       },
       payload,
+      replyOpts,
     );
 
     const inferred = inferWakeAppointmentFields(payload);
@@ -257,7 +311,8 @@ export class WhatsappService {
       dateTime?: string;
       location?: string;
       notes?: string;
-      transport?: string;
+      transportUserId?: string | null;
+      transportNotes?: string;
     } = {};
 
     const { patch: schedulePatch, timeMentionedInMessage } =
@@ -288,9 +343,19 @@ export class WhatsappService {
       }
     }
 
-    const transportCandidate = extracted.transport?.trim();
-    if (transportCandidate) {
-      patch.transport = transportCandidate;
+    if (
+      extracted.transportDriver?.trim() ||
+      extracted.transportNotes?.trim() ||
+      extracted.transport?.trim()
+    ) {
+      const resolved =
+        await this.familyPersonas.resolveTransportFromExtraction({
+          transportDriver: extracted.transportDriver,
+          transportNotes: extracted.transportNotes,
+          legacyTransport: extracted.transport,
+        });
+      patch.transportUserId = resolved.transportUserId;
+      patch.transportNotes = resolved.transportNotes;
     }
 
     const shouldMergeNotes =
@@ -299,6 +364,7 @@ export class WhatsappService {
       const merged = await this.ai.mergeAppointmentNotes(
         target.notes ?? '',
         payload,
+        replyOpts,
       );
       if (merged && merged !== (target.notes ?? '').trim()) {
         patch.notes = merged;
@@ -308,7 +374,8 @@ export class WhatsappService {
     if (
       !patch.dateTime &&
       !patch.notes &&
-      !patch.transport &&
+      patch.transportUserId === undefined &&
+      patch.transportNotes === undefined &&
       !patch.title &&
       !patch.location
     ) {
@@ -331,7 +398,9 @@ export class WhatsappService {
     const timeNote = showTime ? '' : ' (שעה לא צוינה)';
     const addedNotes = patch.notes && patch.notes !== target.notes;
     const addedTransport =
-      patch.transport && patch.transport !== (target.transport ?? '');
+      patch.transportUserId !== undefined ||
+      (patch.transportNotes !== undefined &&
+        patch.transportNotes !== (target.transportNotes ?? ''));
     const suffixParts: string[] = [];
     if (addedTransport) {
       suffixParts.push('הסעה עודכנה');
@@ -342,7 +411,25 @@ export class WhatsappService {
     const suffix = suffixParts.length
       ? ` (${suffixParts.join(', ')})`
       : '';
-    return `עדכנתי תור: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
+    const prefix = replyOpts.addressSecondPerson
+      ? 'עדכנתי את התור שלך'
+      : 'עדכנתי תור';
+    return `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
+  }
+
+  private async formatTransportNote(
+    appointment: {
+      transportUser?: { name: string; gender: import('@prisma/client').Gender | null } | null;
+      transportNotes?: string | null;
+    },
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
+    const personas = await this.familyPersonas.getPersonas();
+    const line = formatAppointmentTransportHebrew(appointment, {
+      addressSecondPerson: replyOpts.addressSecondPerson,
+      personas,
+    });
+    return line ? ` 🚗 ${line}` : '';
   }
 
   private async resolveAppointmentForUpdate(payload: string) {
@@ -378,17 +465,27 @@ export class WhatsappService {
     return { status: 'unresolved' as const };
   }
 
-  private async handleWakeCancel(payload: string): Promise<string> {
-    const extracted = await this.ai.extractAppointmentFromText(payload);
+  private async handleWakeCancel(
+    payload: string,
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
+    const extracted = await this.ai.extractAppointmentFromText(
+      payload,
+      replyOpts,
+    );
     if (!extracted.dateTime) {
-      return 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור ב-27.5';
+      return replyOpts.addressSecondPerson
+        ? 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור שלך ב-27.5'
+        : 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור ב-27.5';
     }
 
     const day = new Date(extracted.dateTime);
     const rows = await this.appointments.findOnCalendarDay(day);
     if (rows.length === 0) {
       const when = formatAppointmentWhenHebrew(day, false);
-      return `לא מצאתי תור בתאריך ${when}.`;
+      return replyOpts.addressSecondPerson
+        ? `לא מצאתי לך תור בתאריך ${when}.`
+        : `לא מצאתי תור בתאריך ${when}.`;
     }
 
     for (const row of rows) {
@@ -400,7 +497,10 @@ export class WhatsappService {
       return `• ${r.title} (${when})`;
     });
 
-    return `ביטלתי ${rows.length} תור/ים:\n${lines.join('\n')}`;
+    const header = replyOpts.addressSecondPerson
+      ? `ביטלתי ${rows.length} תור/ים שלך:`
+      : `ביטלתי ${rows.length} תור/ים:`;
+    return `${header}\n${lines.join('\n')}`;
   }
 
   private async safeSend(target: WhatsappSendTarget, message: string) {

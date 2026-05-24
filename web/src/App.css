@@ -88,6 +88,14 @@
   color: #334155;
 }
 
+.form select {
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 1rem;
+  background: #fff;
+}
+
 .field-hint {
   font-size: 0.8rem;
   font-weight: 400;
@@ -96,6 +104,7 @@
 }
 
 .form input,
+.form select,
 textarea {
   padding: 0.55rem 0.65rem;
   border-radius: 10px;

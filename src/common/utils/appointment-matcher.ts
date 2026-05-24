@@ -9,7 +9,8 @@ export type AppointmentMatchRow = {
   title: string;
   location: string;
   notes: string;
-  transport: string;
+  transport?: string;
+  transportNotes: string;
   createdAt: Date;
   dateTime: Date;
 };
@@ -44,7 +45,7 @@ function scoreAppointmentMatch(
     appointment.title,
     appointment.location,
     appointment.notes,
-    appointment.transport,
+    appointment.transportNotes,
   ];
   const phrases = meaningfulPhrases(...haystacks);
 

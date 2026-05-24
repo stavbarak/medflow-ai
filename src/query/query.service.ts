@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { formatAppointmentWhenHebrew } from '../common/utils/appointment-datetime';
+import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
+import { type PatientReplyOptions } from '../common/utils/patient-address';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 
 @Injectable()
 export class QueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: AiService,
+    private readonly familyPersonas: FamilyPersonaService,
   ) {}
 
   /** Builds JSON facts from DB for grounded answers (UTC stored times). */
@@ -22,6 +26,9 @@ export class QueryService {
         responsibleUser: {
           select: { name: true, phoneNumber: true },
         },
+        transportUser: {
+          select: { name: true, gender: true },
+        },
       },
     });
     return {
@@ -32,7 +39,9 @@ export class QueryService {
         dateTime: a.dateTime.toISOString(),
         location: a.location,
         notes: a.notes,
-        transport: a.transport,
+        transportUser: a.transportUser,
+        transportNotes: a.transportNotes,
+        transportDisplay: formatAppointmentTransportHebrew(a),
         responsible: a.responsibleUser,
         requirements: a.requirements.map((r) => ({
           description: r.description,
@@ -49,20 +58,35 @@ export class QueryService {
   }
 
   /** Hebrew summary of upcoming appointments + requirements (no LLM). */
-  formatFactsDumpHebrew(
+  async formatFactsDumpHebrew(
     facts: Awaited<ReturnType<QueryService['buildFactsPayload']>>,
-  ): string {
+    replyOptions?: PatientReplyOptions,
+  ): Promise<string> {
     const { upcomingAppointments } = facts;
+    const second = replyOptions?.addressSecondPerson;
+    const personas = await this.familyPersonas.getPersonas();
     if (upcomingAppointments.length === 0) {
-      return 'אין תורים קרובים במערכת כרגע.';
+      return second
+        ? 'אין לך תורים קרובים במערכת כרגע.'
+        : 'אין תורים קרובים במערכת כרגע.';
     }
-    const lines = ['📋 תורים ומשימות קרובים:', ''];
+    const lines = [
+      second ? '📋 התורים והמשימות שלך:' : '📋 תורים ומשימות קרובים:',
+      '',
+    ];
     for (const a of upcomingAppointments) {
       const when = formatAppointmentWhenHebrew(a.dateTime, true);
       lines.push(`• ${a.title} — ${when}`);
       lines.push(`  📍 ${a.location}`);
-      if (a.transport) {
-        lines.push(`  🚗 ${a.transport}`);
+      const transportLine = formatAppointmentTransportHebrew(
+        {
+          transportUser: a.transportUser,
+          transportNotes: a.transportNotes,
+        },
+        { addressSecondPerson: second, personas },
+      );
+      if (transportLine) {
+        lines.push(`  🚗 ${transportLine}`);
       }
       if (a.notes) {
         lines.push(`  📝 ${a.notes}`);
@@ -82,18 +106,18 @@ export class QueryService {
     return lines.join('\n').trim();
   }
 
-  /**
-   * Wake word (חנטריש): full DB dump when called alone; grounded Q&A when a question follows.
-   */
-  async answerWakeWord(userText: string): Promise<string> {
+  async answerWakeWord(
+    userText: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<string> {
     const question = userText
       .replace(new RegExp('חנטריש', 'g'), '')
       .trim();
     const facts = await this.buildFactsPayload();
     if (!question) {
-      return this.formatFactsDumpHebrew(facts);
+      return this.formatFactsDumpHebrew(facts, replyOptions);
     }
     const factsJson = JSON.stringify(facts, null, 0);
-    return this.ai.answerQuestionFromFacts(question, factsJson);
+    return this.ai.answerQuestionFromFacts(question, factsJson, replyOptions);
   }
 }

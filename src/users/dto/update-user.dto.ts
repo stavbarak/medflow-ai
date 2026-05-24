@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { Gender } from '@prisma/client';
+import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -14,4 +15,8 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   role?: string;
+
+  @IsOptional()
+  @IsEnum(Gender, { message: 'מין לא תקין' })
+  gender?: Gender;
 }

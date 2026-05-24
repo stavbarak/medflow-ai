@@ -37,6 +37,14 @@ export class AppointmentExtractionResultDto {
   transport?: string;
 
   @IsOptional()
+  @IsString()
+  transportDriver?: string;
+
+  @IsOptional()
+  @IsString()
+  transportNotes?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ExtractedRequirementItemDto)

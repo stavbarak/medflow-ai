@@ -7,11 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Gender {
+  male
+  female
+}
+
 /// Family members permitted to register and use WhatsApp (admin adds rows or ALLOWED_PHONE_NUMBERS env).
 model AllowedPhone {
   id          String   @id @default(uuid())
   phoneNumber String   @unique
   label       String?
+  gender      Gender?
   createdAt   DateTime @default(now())
 }
 
@@ -21,9 +27,11 @@ model User {
   phoneNumber  String   @unique
   passwordHash String
   role         String?
+  gender       Gender?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  transportFor        Appointment[]        @relation("AppointmentTransport")
   responsibleFor      Appointment[]        @relation("AppointmentResponsible")
   documents           MedicalDocument[]
   passwordResetTokens PasswordResetToken[]
@@ -46,8 +54,10 @@ model Appointment {
   dateTime          DateTime
   location          String
   notes             String   @default("")
-  /// Who drives / how the patient gets there (e.g. "שירי תיקח ותחזיר").
-  transport         String   @default("")
+  /// Optional extra ride details (מונית, תחזיר, etc.).
+  transportNotes    String   @default("")
+  transportUserId   String?
+  transportUser     User?    @relation("AppointmentTransport", fields: [transportUserId], references: [id], onDelete: SetNull)
   responsibleUserId String?
   responsibleUser   User?    @relation("AppointmentResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   requirements      Requirement[]

@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { Gender } from '@prisma/client';
+import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -16,4 +17,8 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   role?: string;
+
+  @IsOptional()
+  @IsEnum(Gender, { message: 'מין לא תקין' })
+  gender?: Gender;
 }

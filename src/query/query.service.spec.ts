@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { QueryService } from './query.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 
 type FindMany = PrismaService['appointment']['findMany'];
 type FindManyArgs = Parameters<FindMany>[0];
@@ -23,12 +24,19 @@ describe('QueryService (Stage 3)', () => {
     answerQuestionFromFacts,
   };
 
+  const familyPersonasMock = {
+    getPersonas: jest.fn().mockResolvedValue([]),
+    getPromptBlock: jest.fn().mockResolvedValue(''),
+    findGenderForPhone: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QueryService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AiService, useValue: aiMock },
+        { provide: FamilyPersonaService, useValue: familyPersonasMock },
       ],
     }).compile();
 
@@ -71,6 +79,9 @@ describe('QueryService (Stage 3)', () => {
       requirements: true,
       responsibleUser: {
         select: { name: true, phoneNumber: true },
+      },
+      transportUser: {
+        select: { name: true, gender: true },
       },
     });
 

@@ -1,8 +1,10 @@
+import { Gender } from '@prisma/client';
 import {
   IsDateString,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
   MinLength,
 } from 'class-validator';
 
@@ -23,8 +25,13 @@ export class CreateAppointmentDto {
   notes?: string;
 
   @IsOptional()
+  @ValidateIf((_o, v) => v != null)
+  @IsUUID()
+  transportUserId?: string | null;
+
+  @IsOptional()
   @IsString()
-  transport?: string;
+  transportNotes?: string;
 
   @IsOptional()
   @IsUUID()
