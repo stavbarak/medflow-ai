@@ -5,6 +5,7 @@ import { type PatientReplyOptions } from '../common/utils/patient-address';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
+import { stripWakeWord } from '../common/utils/wake-word';
 
 @Injectable()
 export class QueryService {
@@ -110,9 +111,7 @@ export class QueryService {
     userText: string,
     replyOptions?: PatientReplyOptions,
   ): Promise<string> {
-    const question = userText
-      .replace(new RegExp('חנטריש', 'g'), '')
-      .trim();
+    const question = stripWakeWord(userText);
     const facts = await this.buildFactsPayload();
     if (!question) {
       return this.formatFactsDumpHebrew(facts, replyOptions);

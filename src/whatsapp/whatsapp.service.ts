@@ -32,14 +32,11 @@ import {
   isPlaceholderTitle,
 } from '../common/utils/wake-appointment-fields';
 import {
+  classifyWakePayload,
   looksLikeNewAppointment,
   looksLikeNotesUpdate,
 } from './whatsapp-wake-intent';
-import { BOT_WAKE_WORD } from '../common/utils/question-heuristic';
-import {
-  classifyWakePayload,
-  stripWakeWord,
-} from './whatsapp-wake-intent';
+import { containsWakeWord, stripWakeWord } from '../common/utils/wake-word';
 
 import {
   extractGroupWebhookEvents,
@@ -137,7 +134,7 @@ export class WhatsappService {
     }
 
     // Group-safe: only respond when the bot is called by name.
-    if (!text.includes(BOT_WAKE_WORD)) {
+    if (!containsWakeWord(text)) {
       return;
     }
 

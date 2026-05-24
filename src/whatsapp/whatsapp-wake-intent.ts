@@ -1,14 +1,10 @@
-import {
-  BOT_WAKE_WORD,
-  looksLikeQuestion,
-} from '../common/utils/question-heuristic';
+import { looksLikeQuestion } from '../common/utils/question-heuristic';
+import { stripWakeWord } from '../common/utils/wake-word';
 import { textHasExplicitTime } from '../common/utils/appointment-datetime';
 
 export type WakeIntent = 'list' | 'question' | 'create' | 'cancel' | 'update';
 
-export function stripWakeWord(text: string): string {
-  return text.replace(new RegExp(BOT_WAKE_WORD, 'g'), '').trim();
-}
+export { stripWakeWord };
 
 const CANCEL_RE =
   /(תבטל|תבטלי|בטל|בטלי|מחק|מחקי|ביטול|לבטל|להסיר|הסר|cancel)/iu;
