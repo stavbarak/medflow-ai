@@ -9,7 +9,7 @@ These notes are for **first-time readers**: what we built, what was tricky, and 
 | Checklists & “what’s next?” | [Stage 2 — notes, requirements, upcoming](stage-2-notes-requirements-and-upcoming.md) |
 | **AI on stored data only** (extraction, Q&A, grounding, update pipeline) | [Stage 3 — AI extraction & grounded Q&A](stage-3-ai-extraction-and-queries.md) |
 | WhatsApp in the codebase | [Stage 4 — WhatsApp module](stage-4-whatsapp-module.md) |
-| WhatsApp Groups API (OBA, CLI scripts) | [WhatsApp Groups setup](whatsapp-groups-setup.md) |
+| WhatsApp (1:1 family bot) | [Stage 4 — WhatsApp](stage-4-whatsapp-module.md) |
 | Minimal Hebrew UI | [The `web/` SPA](minimal-spa-hebrew-ui.md) |
 | Postgres in a box | [Docker & local database](docker-and-local-database.md) |
 | Meta’s console (outside the repo) | [Setting up the Meta / WhatsApp app](meta-whatsapp-developer-setup.md) |
@@ -34,7 +34,7 @@ These notes are for **first-time readers**: what we built, what was tricky, and 
 **Day 3 — WhatsApp + production**
 
 7. [Stage 4 — WhatsApp](stage-4-whatsapp-module.md) — webhook → allowlist → intent → same services as REST.
-8. [Meta setup](meta-whatsapp-developer-setup.md) + [Groups](whatsapp-groups-setup.md) if applicable.
+8. [Meta setup](meta-whatsapp-developer-setup.md).
 9. [Deployment](deployment-railway-and-spa.md) — Railway, env vars, allowlist on prod.
 
 ```mermaid

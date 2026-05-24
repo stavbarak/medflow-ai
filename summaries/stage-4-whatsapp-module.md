@@ -150,7 +150,7 @@ Intent switch in `WhatsappService`:
 - **Allowlist gate** — sender must be in `AllowedPhone` / `ALLOWED_PHONE_NUMBERS`. No web registration required for WhatsApp (family can message immediately once their number is allowlisted).
 - **Full CRUD-style intents** — create, update (with appointment matching), cancel, list, Q&A—not “always create” anymore.
 - **Outbound** — Graph API **`v22.0`** when tokens are set; otherwise log `[WhatsApp לא מוגדר]` for local dev.
-- **Group-ready plumbing** — `recipient_type: group` for replies; group webhooks logged. See [WhatsApp Groups setup](whatsapp-groups-setup.md) (requires Meta eligibility).
+- **1:1 family bot** — each allowlisted member messages the business number with `חנטריש`. Groups API was not used; see [WhatsApp Groups (unused)](whatsapp-groups-setup.md).
 
 ---
 
