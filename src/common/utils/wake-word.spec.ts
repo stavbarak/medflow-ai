@@ -13,6 +13,7 @@ describe('stripWakeWord', () => {
   it('returns empty for wake word plus greeting only', () => {
     expect(stripWakeWord('חנטריש שלום')).toBe('');
     expect(stripWakeWord('חנטריש, שלום!')).toBe('');
+    expect(stripWakeWord('חנטריש שבוע טוב')).toBe('');
     expect(stripWakeWord('שלום חנטריש')).toBe('');
     expect(stripWakeWord('היי חנטריש')).toBe('');
   });

@@ -5,10 +5,10 @@ const PUNCTUATION_ONLY_RE = /^[\s,;:!?.\-–—…\u05BE]+$/u;
 
 /** Greeting-only remainder after the wake word → treat like bare wake word (list). */
 const GREETING_ONLY_RE =
-  /^(?:שלום|היי|hey|hi|hello|בוקר\s+טוב|ערב\s+טוב|לילה\s+טוב|מה\s+נשמע|מה\s+שלומ(?:ך|ם))[\s!?.,…]*$/iu;
+  /^(?:שלום|היי|hey|hi|hello|בוקר\s+טוב|ערב\s+טוב|לילה\s+טוב|שבוע\s+טוב|מה\s+נשמע|מה\s+שלומ(?:ך|ם))[\s!?.,…]*$/iu;
 
 const LEADING_GREETING_RE =
-  /^(?:שלום|היי|hey|hi|hello|בוקר\s+טוב|ערב\s+טוב|לילה\s+טוב)[\s,;:!?.\-–—…\u05BE]+/iu;
+  /^(?:שלום|היי|hey|hi|hello|בוקר\s+טוב|ערב\s+טוב|לילה\s+טוב|שבוע\s+טוב)[\s,;:!?.\-–—…\u05BE]+/iu;
 
 export function containsWakeWord(text: string): boolean {
   return text.includes(BOT_WAKE_WORD);
