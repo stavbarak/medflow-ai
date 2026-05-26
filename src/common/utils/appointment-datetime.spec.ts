@@ -1,8 +1,10 @@
 import {
+  extractTimeFromText,
   formatAppointmentWhenHebrew,
   getJerusalemParts,
   listDateMatchesInText,
   parseAppointmentWhenFromText,
+  parseCompactTimeDigits,
   textHasExplicitTime,
 } from './appointment-datetime';
 
@@ -71,6 +73,33 @@ describe('listDateMatchesInText', () => {
         'תעדכן שבתור ב 14-7 בסוף שגיא יסיע ולא שירי',
       ),
     ).toEqual([{ day: 14, month: 7, yearRaw: undefined }]);
+  });
+});
+
+describe('extractTimeFromText', () => {
+  it('parses compact HHMM after בשעה (1345 → 13:45)', () => {
+    const t = extractTimeFromText('תוסיף תור לאונקולוג ב 5.8 בשעה 1345');
+    expect(t).toEqual({ hour: 13, minute: 45 });
+  });
+
+  it('parses 930 as 9:30', () => {
+    expect(parseCompactTimeDigits('930')).toEqual({ hour: 9, minute: 30 });
+    expect(extractTimeFromText('בשעה 930')).toEqual({ hour: 9, minute: 30 });
+  });
+
+  it('still parses 12:00 colon format', () => {
+    expect(extractTimeFromText('בשעה 12:00')).toEqual({ hour: 12, minute: 0 });
+  });
+
+  it('stores 13:45 when creating via parseAppointmentWhenFromText', () => {
+    const r = parseAppointmentWhenFromText(
+      'חנטריש תוסיף תור לאונקולוג ב 5.8 בשעה 1345',
+      MAY_20_2026,
+    );
+    expect(r!.hasTime).toBe(true);
+    const parts = getJerusalemParts(new Date(r!.dateTime));
+    expect(parts.hour).toBe(13);
+    expect(parts.minute).toBe(45);
   });
 });
 

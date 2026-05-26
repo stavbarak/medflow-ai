@@ -13,6 +13,7 @@ export function isPlaceholderLocation(location: string | undefined | null): bool
 /** Infer visit title from natural Hebrew booking phrases. */
 export function inferTitleFromText(text: string): string | undefined {
   const patterns = [
+    /(?:תמחק|מחק|בטל|תבטל)\s+תור\s+ל?([א-ת][א-ת\s'-]+?)(?:\s+ב\s*[-.\d]|\s+בשעה)/iu,
     /(?:תוסיף|תוסיפי|הוסף|יש)\s+(?:ל)?(?:אבא\s+)?תור\s+(.+?)\s+בא[א-ת]/iu,
     /(?:תוסיף|תוסיפי|הוסף|יש)\s+(?:ל)?(?:אבא\s+)?תור\s+(.+?)(?:\s+ב[-\d]|\s+בשעה)/iu,
     /ביקורת\s+([א-ת][א-ת\s]+?)(?:\s+ב|\s+בא|$)/iu,
@@ -67,12 +68,21 @@ export function inferWakeAppointmentFields(text: string): {
 }
 
 /** Subject phrases for matching which appointment to update. */
+function normalizeVisitSubjectPhrase(raw: string): string {
+  let t = raw.trim();
+  if (t.startsWith('ל') && t.length > 3) {
+    t = t.slice(1).trim();
+  }
+  return t;
+}
+
 export function extractSubjectHintsForMatch(text: string): string[] {
   const hints = new Set<string>();
   const title = inferTitleFromText(text);
   if (title) {
-    hints.add(title);
-    for (const w of title.split(/\s+/)) {
+    const normalized = normalizeVisitSubjectPhrase(title);
+    hints.add(normalized);
+    for (const w of normalized.split(/\s+/)) {
       if (w.length >= 4) {
         hints.add(w);
       }

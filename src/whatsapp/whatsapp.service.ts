@@ -13,11 +13,15 @@ import { AppointmentsService } from '../appointments/appointments.service';
 import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
 import {
+  formatAmbiguousCancelPromptHebrew,
   formatAmbiguousUpdatePromptHebrew,
+  formatNoTimeMatchOnDayHebrew,
   pickAppointmentForUpdate,
+  resolveAppointmentCandidates,
   resolveUpdateTarget,
 } from '../common/utils/appointment-matcher';
 import {
+  extractTimeFromText,
   formatAppointmentWhenHebrew,
   listDateMatchesInText,
   parseAppointmentWhenFromMatch,
@@ -458,42 +462,66 @@ export class WhatsappService {
     return { status: 'unresolved' as const };
   }
 
+  private async resolveAppointmentForCancel(payload: string) {
+    const dates = listDateMatchesInText(payload);
+
+    if (dates.length >= 1) {
+      const ref = dates.length >= 2 ? dates[0] : dates[dates.length - 1];
+      const when = parseAppointmentWhenFromMatch(
+        ref.day,
+        ref.month,
+        ref.yearRaw,
+        payload,
+      );
+      const onDay = await this.appointments.findOnCalendarDay(
+        new Date(when.dateTime),
+      );
+      if (onDay.length > 0) {
+        return resolveAppointmentCandidates(payload, onDay);
+      }
+      return { status: 'unresolved' as const };
+    }
+
+    const all = await this.appointments.findAll();
+    const result = resolveAppointmentCandidates(payload, all);
+    return result;
+  }
+
   private async handleWakeCancel(
     payload: string,
     replyOpts: PatientReplyOptions,
   ): Promise<string> {
-    const extracted = await this.ai.extractAppointmentFromText(
-      payload,
-      replyOpts,
-    );
-    if (!extracted.dateTime) {
+    const lookup = await this.resolveAppointmentForCancel(payload);
+    if (lookup.status === 'ambiguous') {
+      return formatAmbiguousCancelPromptHebrew(lookup.appointments);
+    }
+    if (lookup.status === 'unresolved') {
+      const parsed = parseAppointmentWhenFromText(payload);
+      if (parsed) {
+        const onDay = await this.appointments.findOnCalendarDay(
+          new Date(parsed.dateTime),
+        );
+        const time = extractTimeFromText(payload);
+        if (time && onDay.length > 0) {
+          return formatNoTimeMatchOnDayHebrew(time, onDay);
+        }
+        if (onDay.length === 0) {
+          const when = formatAppointmentWhenHebrew(parsed.dateTime, false);
+          return replyOpts.addressSecondPerson
+            ? `לא מצאתי לך תור בתאריך ${when}.`
+            : `לא מצאתי תור בתאריך ${when}.`;
+        }
+      }
       return replyOpts.addressSecondPerson
-        ? 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור שלך ב-27.5'
-        : 'לא הצלחתי לזהות איזה תאריך לבטל. נסו: חנטריש תבטל את התור ב-27.5';
+        ? 'לא מצאתי תור לביטול. נסו לציין תאריך, שעה, או סוג ביקור (למשל אונקולוג ב-5.8 בשעה 12:00).'
+        : 'לא מצאתי תור לביטול. נסו לציין תאריך, שעה, או סוג ביקור (למשל אונקולוג ב-5.8 בשעה 12:00).';
     }
 
-    const day = new Date(extracted.dateTime);
-    const rows = await this.appointments.findOnCalendarDay(day);
-    if (rows.length === 0) {
-      const when = formatAppointmentWhenHebrew(day, false);
-      return replyOpts.addressSecondPerson
-        ? `לא מצאתי לך תור בתאריך ${when}.`
-        : `לא מצאתי תור בתאריך ${when}.`;
-    }
-
-    for (const row of rows) {
-      await this.appointments.remove(row.id);
-    }
-
-    const lines = rows.map((r) => {
-      const when = formatAppointmentWhenHebrew(r.dateTime, true);
-      return `• ${r.title} (${when})`;
-    });
-
-    const header = replyOpts.addressSecondPerson
-      ? `ביטלתי ${rows.length} תור/ים שלך:`
-      : `ביטלתי ${rows.length} תור/ים:`;
-    return `${header}\n${lines.join('\n')}`;
+    const row = lookup.appointment;
+    await this.appointments.remove(row.id);
+    const when = formatAppointmentWhenHebrew(row.dateTime, true);
+    const prefix = replyOpts.addressSecondPerson ? 'ביטלתי את התור שלך' : 'ביטלתי תור';
+    return `${prefix}: ${row.title} (${when}).`;
   }
 
   private async safeSend(target: WhatsappSendTarget, message: string) {

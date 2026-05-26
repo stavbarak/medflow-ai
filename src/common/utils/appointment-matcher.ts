@@ -1,4 +1,8 @@
-import { formatAppointmentWhenHebrew } from './appointment-datetime';
+import {
+  extractTimeFromText,
+  formatAppointmentWhenHebrew,
+  getJerusalemParts,
+} from './appointment-datetime';
 import {
   extractSubjectHintsForMatch,
   isPlaceholderTitle,
@@ -81,12 +85,68 @@ function scoreAppointmentMatch(
 }
 
 /** Pick one appointment from candidates using title/location/notes overlap. */
+function jerusalemTimeMatches(
+  dateTime: Date,
+  time: { hour: number; minute: number },
+): boolean {
+  const parts = getJerusalemParts(dateTime);
+  return parts.hour === time.hour && parts.minute === time.minute;
+}
+
+/** Narrow same-day candidates when the message includes an explicit time. */
+export function narrowCandidatesByExplicitTime(
+  payload: string,
+  candidates: AppointmentMatchRow[],
+): AppointmentMatchRow[] {
+  const time = extractTimeFromText(payload);
+  if (!time) {
+    return candidates;
+  }
+  return candidates.filter((a) =>
+    jerusalemTimeMatches(new Date(a.dateTime), time),
+  );
+}
+
 export function pickAppointmentForUpdate(
   payload: string,
   appointments: AppointmentMatchRow[],
 ): AppointmentMatchRow | null {
   const result = resolveUpdateTarget(payload, appointments);
   return result.status === 'resolved' ? result.appointment : null;
+}
+
+/**
+ * Resolve one appointment from a candidate list (same day or global).
+ * When a time is mentioned but no row matches it, returns unresolved instead of guessing.
+ */
+export function resolveAppointmentCandidates(
+  payload: string,
+  candidates: AppointmentMatchRow[],
+): ResolveUpdateTargetResult {
+  if (candidates.length === 0) {
+    return { status: 'unresolved' };
+  }
+
+  const time = extractTimeFromText(payload);
+  if (time) {
+    const atTime = narrowCandidatesByExplicitTime(payload, candidates);
+    if (atTime.length > 0) {
+      const result = resolveUpdateTarget(payload, atTime);
+      if (
+        result.status === 'resolved' &&
+        extractSubjectHintsForMatch(payload).length > 0 &&
+        scoreAppointmentMatch(payload, result.appointment) === 0
+      ) {
+        return { status: 'unresolved' };
+      }
+      return result;
+    }
+    if (candidates.length >= 1) {
+      return { status: 'unresolved' };
+    }
+  }
+
+  return resolveUpdateTarget(payload, candidates);
 }
 
 /**
@@ -130,15 +190,46 @@ export function resolveUpdateTarget(
   return { status: 'ambiguous', appointments: tied };
 }
 
+function formatAmbiguousAppointmentListHebrew(
+  appointments: AppointmentMatchRow[],
+): string {
+  return appointments
+    .map((a, i) => {
+      const when = formatAppointmentWhenHebrew(a.dateTime, true);
+      return `${i + 1}. ${a.title} — ${when}, ${a.location}`;
+    })
+    .join('\n');
+}
+
 export function formatAmbiguousUpdatePromptHebrew(
   appointments: AppointmentMatchRow[],
 ): string {
-  const lines = appointments.map((a, i) => {
+  return (
+    `יש כמה תורים באותו יום:\n${formatAmbiguousAppointmentListHebrew(appointments)}\n` +
+    'נסו לציין שם המרפאה, המיקום, או פרטים נוספים כדי שאדע למי התכוונתם.'
+  );
+}
+
+export function formatAmbiguousCancelPromptHebrew(
+  appointments: AppointmentMatchRow[],
+): string {
+  return (
+    `יש כמה תורים באותו יום:\n${formatAmbiguousAppointmentListHebrew(appointments)}\n` +
+    'נסו לציין שעה, סוג ביקור (למשל אונקולוג), או מרפאה כדי שאדע איזה תור לבטל.'
+  );
+}
+
+export function formatNoTimeMatchOnDayHebrew(
+  requestedTime: { hour: number; minute: number },
+  appointments: AppointmentMatchRow[],
+): string {
+  const hh = String(requestedTime.hour).padStart(2, '0');
+  const mm = String(requestedTime.minute).padStart(2, '0');
+  const lines = appointments.map((a) => {
     const when = formatAppointmentWhenHebrew(a.dateTime, true);
-    return `${i + 1}. ${a.title} — ${when}, ${a.location}`;
+    return `• ${a.title} (${when})`;
   });
   return (
-    `יש כמה תורים באותו יום:\n${lines.join('\n')}\n` +
-    'נסו לציין שם המרפאה, המיקום, או פרטים נוספים כדי שאדע למי התכוונתם.'
+    `לא מצאתי תור בשעה ${hh}:${mm} באותו יום. התורים שיש:\n${lines.join('\n')}`
   );
 }

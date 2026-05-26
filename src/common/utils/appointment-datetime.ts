@@ -125,14 +125,45 @@ export function textHasExplicitTime(text: string): boolean {
   return extractTimeFromText(text) !== null;
 }
 
+/** Parse compact times: 1345 → 13:45, 930 → 9:30. */
+export function parseCompactTimeDigits(
+  digits: string,
+): { hour: number; minute: number } | null {
+  const d = digits.replace(/\D/g, '');
+  if (d.length === 4) {
+    const hour = parseInt(d.slice(0, 2), 10);
+    const minute = parseInt(d.slice(2, 4), 10);
+    if (hour <= 23 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+  if (d.length === 3) {
+    const hour = parseInt(d.slice(0, 1), 10);
+    const minute = parseInt(d.slice(1, 3), 10);
+    if (hour <= 9 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+  return null;
+}
+
 export function extractTimeFromText(
   text: string,
 ): { hour: number; minute: number } | null {
+  const compactAfterHour = /(?:בשעה|שעה)\s*(\d{3,4})(?!\d)/giu;
+  let compactMatch: RegExpExecArray | null;
+  while ((compactMatch = compactAfterHour.exec(text)) !== null) {
+    const parsed = parseCompactTimeDigits(compactMatch[1]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
   const patterns: RegExp[] = [
     /(\d{1,2}):(\d{2})/u,
-    /(?:הוא|היא|זה|זו)\s+בשעה\s*(\d{1,2})(?::(\d{2}))?/iu,
-    /בשעה\s*(\d{1,2})(?::(\d{2}))?/iu,
-    /(?:תשנה|שנה|לעדכן|עדכן)[^.]{0,40}?ל[-–]?(\d{1,2})(?::(\d{2}))?/iu,
+    /(?:הוא|היא|זה|זו)\s+בשעה\s*(\d{1,2})(?::(\d{2}))?(?!\d)/iu,
+    /בשעה\s*(\d{1,2})(?::(\d{2}))?(?!\d)/iu,
+    /(?:תשנה|שנה|לעדכן|עדכן)[^.]{0,40}?ל[-–]?(\d{1,2})(?::(\d{2}))?(?!\d)/iu,
     /(?:^|[\s,])ל[-–](\d{1,2})(?::(\d{2}))?(?!\d)/iu,
   ];
 
