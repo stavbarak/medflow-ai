@@ -54,7 +54,6 @@ import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
-import { buildGoogleCalendarTemplateUrl } from '../common/utils/google-calendar-link';
 import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import {
   type PatientReplyOptions,
