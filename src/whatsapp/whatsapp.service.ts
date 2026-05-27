@@ -280,7 +280,7 @@ export class WhatsappService {
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
     const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
     const calendarUrl = base
-      ? `${base}/api/c/a/${created.id}?t=${extracted.hasTime ? '1' : '0'}`
+      ? `${base}/api/c/ics/${created.id}?t=${extracted.hasTime ? '1' : '0'}`
       : buildGoogleCalendarTemplateUrl({
           title: created.title,
           startDate: new Date(created.dateTime),
@@ -466,7 +466,7 @@ export class WhatsappService {
     });
     const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
     const calendarUrlFinal = base
-      ? `${base}/api/c/a/${updated.id}?t=${showTime ? '1' : '0'}`
+      ? `${base}/api/c/ics/${updated.id}?t=${showTime ? '1' : '0'}`
       : calendarUrl;
     return (
       `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}` +
