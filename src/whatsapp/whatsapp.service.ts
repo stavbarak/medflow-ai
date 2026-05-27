@@ -16,6 +16,7 @@ import {
   formatAmbiguousCancelPromptHebrew,
   formatAmbiguousUpdatePromptHebrew,
   formatNoTimeMatchOnDayHebrew,
+  type AppointmentMatchRow,
   pickAppointmentForUpdate,
   resolveAppointmentCandidates,
   resolveUpdateTarget,
@@ -53,6 +54,13 @@ import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
+import {
+  buildGoogleCalendarDayViewUrl,
+  buildGoogleCalendarTemplateUrl,
+  CALENDAR_REMOVE_LABEL,
+  CALENDAR_SAVE_LABEL,
+  formatCalendarActionLine,
+} from '../common/utils/google-calendar-link';
 import {
   type PatientReplyOptions,
   replyOptionsForSender,
@@ -268,7 +276,19 @@ export class WhatsappService {
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
     const transportNote = await this.formatTransportNote(created, replyOpts);
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
-    return `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
+    const calendarUrl = buildGoogleCalendarTemplateUrl({
+      title: created.title,
+      startDate: new Date(created.dateTime),
+      hasTime: extracted.hasTime,
+      location: created.location,
+      details: [created.notes?.trim(), transportNote.replace(/^ 🚗\s*/u, '').trim()]
+        .filter(Boolean)
+        .join('\n'),
+    });
+    return (
+      `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}` +
+      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrl)
+    );
   }
 
   private async handleWakeUpdate(
@@ -415,12 +435,34 @@ export class WhatsappService {
     const prefix = replyOpts.addressSecondPerson
       ? 'עדכנתי את התור שלך'
       : 'עדכנתי תור';
-    return `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
+    const transportLine = formatAppointmentTransportHebrew(
+      {
+        transportUser: updated.transportUser ?? null,
+        transportNotes: (updated as any).transportNotes ?? '',
+      },
+      {
+        addressSecondPerson: replyOpts.addressSecondPerson,
+        personas: await this.familyPersonas.getPersonas(),
+      },
+    );
+    const calendarUrl = buildGoogleCalendarTemplateUrl({
+      title: updated.title,
+      startDate: new Date(updated.dateTime),
+      hasTime: showTime,
+      location: updated.location,
+      details: [updated.notes?.trim(), transportLine.trim()]
+        .filter(Boolean)
+        .join('\n'),
+    });
+    return (
+      `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}` +
+      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrl)
+    );
   }
 
   private async formatTransportNote(
     appointment: {
-      transportUser?: { name: string; gender: import('@prisma/client').Gender | null } | null;
+      transportUser?: { name: string; gender: any | null } | null;
       transportNotes?: string | null;
     },
     replyOpts: PatientReplyOptions,
@@ -431,6 +473,18 @@ export class WhatsappService {
       personas,
     });
     return line ? ` 🚗 ${line}` : '';
+  }
+
+  private toMatchRow(row: any): AppointmentMatchRow {
+    return {
+      id: row.id,
+      title: row.title,
+      location: row.location,
+      notes: row.notes ?? '',
+      transportNotes: row.transportNotes ?? '',
+      createdAt: row.createdAt ?? new Date(0),
+      dateTime: row.dateTime,
+    };
   }
 
   private async resolveAppointmentForUpdate(payload: string) {
@@ -448,13 +502,19 @@ export class WhatsappService {
         new Date(when.dateTime),
       );
       if (onDay.length > 0) {
-        return resolveUpdateTarget(payload, onDay);
+        return resolveUpdateTarget(
+          payload,
+          onDay.map((r) => this.toMatchRow(r)),
+        );
       }
       return { status: 'unresolved' as const };
     }
 
     const all = await this.appointments.findAll();
-    const matched = pickAppointmentForUpdate(payload, all);
+    const matched = pickAppointmentForUpdate(
+      payload,
+      all.map((r) => this.toMatchRow(r)),
+    );
     if (matched) {
       return { status: 'resolved' as const, appointment: matched };
     }
@@ -477,13 +537,19 @@ export class WhatsappService {
         new Date(when.dateTime),
       );
       if (onDay.length > 0) {
-        return resolveAppointmentCandidates(payload, onDay);
+        return resolveAppointmentCandidates(
+          payload,
+          onDay.map((r) => this.toMatchRow(r)),
+        );
       }
       return { status: 'unresolved' as const };
     }
 
     const all = await this.appointments.findAll();
-    const result = resolveAppointmentCandidates(payload, all);
+    const result = resolveAppointmentCandidates(
+      payload,
+      all.map((r) => this.toMatchRow(r)),
+    );
     return result;
   }
 
@@ -503,7 +569,10 @@ export class WhatsappService {
         );
         const time = extractTimeFromText(payload);
         if (time && onDay.length > 0) {
-          return formatNoTimeMatchOnDayHebrew(time, onDay);
+          return formatNoTimeMatchOnDayHebrew(
+            time,
+            onDay.map((r) => this.toMatchRow(r)),
+          );
         }
         if (onDay.length === 0) {
           const when = formatAppointmentWhenHebrew(parsed.dateTime, false);
@@ -518,10 +587,15 @@ export class WhatsappService {
     }
 
     const row = lookup.appointment;
+    const appointmentDate = new Date(row.dateTime);
     await this.appointments.remove(row.id);
-    const when = formatAppointmentWhenHebrew(row.dateTime, true);
+    const when = formatAppointmentWhenHebrew(appointmentDate, true);
     const prefix = replyOpts.addressSecondPerson ? 'ביטלתי את התור שלך' : 'ביטלתי תור';
-    return `${prefix}: ${row.title} (${when}).`;
+    const calendarDayUrl = buildGoogleCalendarDayViewUrl(appointmentDate);
+    return (
+      `${prefix}: ${row.title} (${when}).` +
+      formatCalendarActionLine(CALENDAR_REMOVE_LABEL, calendarDayUrl)
+    );
   }
 
   private async safeSend(target: WhatsappSendTarget, message: string) {

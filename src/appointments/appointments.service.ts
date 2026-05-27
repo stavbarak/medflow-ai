@@ -4,6 +4,7 @@ import {
   transportUserDisplay,
   transportUserSelect,
 } from '../common/utils/user-profile';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -14,17 +15,23 @@ const appointmentInclude = {
   requirements: true,
 } as const;
 
-function mapAppointment<T extends { responsibleUser?: unknown; transportUser?: unknown }>(
-  row: T,
-) {
-  const r = row as T & {
-    responsibleUser?: Parameters<typeof transportUserDisplay>[0];
-    transportUser?: Parameters<typeof transportUserDisplay>[0];
-  };
+type TransportUserDisplay = ReturnType<typeof transportUserDisplay>;
+type AppointmentRow = Prisma.AppointmentGetPayload<{
+  include: typeof appointmentInclude;
+}>;
+export type AppointmentDto = Omit<
+  AppointmentRow,
+  'responsibleUser' | 'transportUser'
+> & {
+  responsibleUser: TransportUserDisplay;
+  transportUser: TransportUserDisplay;
+};
+
+function mapAppointment(row: AppointmentRow): AppointmentDto {
   return {
-    ...row,
-    responsibleUser: transportUserDisplay(r.responsibleUser),
-    transportUser: transportUserDisplay(r.transportUser),
+    ...(row as Omit<AppointmentRow, 'responsibleUser' | 'transportUser'>),
+    responsibleUser: transportUserDisplay(row.responsibleUser),
+    transportUser: transportUserDisplay(row.transportUser),
   };
 }
 
@@ -32,7 +39,7 @@ function mapAppointment<T extends { responsibleUser?: unknown; transportUser?: u
 export class AppointmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateAppointmentDto) {
+  async create(dto: CreateAppointmentDto): Promise<AppointmentDto> {
     const row = await this.prisma.appointment.create({
       data: {
         title: dto.title,
@@ -48,7 +55,7 @@ export class AppointmentsService {
     return mapAppointment(row);
   }
 
-  async findAll() {
+  async findAll(): Promise<AppointmentDto[]> {
     const rows = await this.prisma.appointment.findMany({
       orderBy: { dateTime: 'asc' },
       include: appointmentInclude,
@@ -56,7 +63,7 @@ export class AppointmentsService {
     return rows.map(mapAppointment);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string): Promise<AppointmentDto> {
     const row = await this.prisma.appointment.findUnique({
       where: { id },
       include: appointmentInclude,
@@ -67,7 +74,7 @@ export class AppointmentsService {
     return mapAppointment(row);
   }
 
-  async update(id: string, dto: UpdateAppointmentDto) {
+  async update(id: string, dto: UpdateAppointmentDto): Promise<AppointmentDto> {
     await this.ensureExists(id);
     const row = await this.prisma.appointment.update({
       where: { id },
@@ -86,7 +93,7 @@ export class AppointmentsService {
     return mapAppointment(row);
   }
 
-  async remove(id: string) {
+  async remove(id: string): Promise<AppointmentDto> {
     await this.ensureExists(id);
     const row = await this.prisma.appointment.delete({
       where: { id },
@@ -95,7 +102,7 @@ export class AppointmentsService {
     return mapAppointment(row);
   }
 
-  async upcoming(fromIso?: string, limit = 20) {
+  async upcoming(fromIso?: string, limit = 20): Promise<AppointmentDto[]> {
     const from = fromIso ? new Date(fromIso) : new Date();
     const rows = await this.prisma.appointment.findMany({
       where: { dateTime: { gte: from } },
@@ -106,7 +113,7 @@ export class AppointmentsService {
     return rows.map(mapAppointment);
   }
 
-  async next() {
+  async next(): Promise<AppointmentDto | null> {
     const from = new Date();
     const rows = await this.prisma.appointment.findMany({
       where: { dateTime: { gte: from } },
@@ -117,7 +124,7 @@ export class AppointmentsService {
     return rows[0] ? mapAppointment(rows[0]) : null;
   }
 
-  async findOnCalendarDay(day: Date) {
+  async findOnCalendarDay(day: Date): Promise<AppointmentDto[]> {
     const { start, end } = jerusalemCalendarDayRange(day);
     const rows = await this.prisma.appointment.findMany({
       where: { dateTime: { gte: start, lt: end } },
@@ -127,7 +134,7 @@ export class AppointmentsService {
     return rows.map(mapAppointment);
   }
 
-  async findMostRecentlyCreated() {
+  async findMostRecentlyCreated(): Promise<AppointmentDto | null> {
     const row = await this.prisma.appointment.findFirst({
       orderBy: { createdAt: 'desc' },
       include: appointmentInclude,
