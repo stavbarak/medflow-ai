@@ -54,13 +54,7 @@ import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
-import {
-  buildGoogleCalendarDayViewUrl,
-  buildGoogleCalendarTemplateUrl,
-  CALENDAR_REMOVE_LABEL,
-  CALENDAR_SAVE_LABEL,
-  formatCalendarActionLine,
-} from '../common/utils/google-calendar-link';
+import { buildGoogleCalendarTemplateUrl } from '../common/utils/google-calendar-link';
 import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import {
   type PatientReplyOptions,
@@ -278,25 +272,7 @@ export class WhatsappService {
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
     const transportNote = await this.formatTransportNote(created, replyOpts);
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
-    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
-    const calendarUrl = base
-      ? `${base}/api/c/ics/${created.id}?t=${extracted.hasTime ? '1' : '0'}`
-      : buildGoogleCalendarTemplateUrl({
-          title: created.title,
-          startDate: new Date(created.dateTime),
-          hasTime: extracted.hasTime,
-          location: created.location,
-          details: [
-            created.notes?.trim(),
-            transportNote.replace(/^ 🚗\s*/u, '').trim(),
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        });
-    return (
-      `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}` +
-      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrl)
-    );
+    return `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
   }
 
   private async handleWakeUpdate(
@@ -455,23 +431,7 @@ export class WhatsappService {
         personas: await this.familyPersonas.getPersonas(),
       },
     );
-    const calendarUrl = buildGoogleCalendarTemplateUrl({
-      title: updated.title,
-      startDate: new Date(updated.dateTime),
-      hasTime: showTime,
-      location: updated.location,
-      details: [updated.notes?.trim(), transportLine.trim()]
-        .filter(Boolean)
-        .join('\n'),
-    });
-    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
-    const calendarUrlFinal = base
-      ? `${base}/api/c/ics/${updated.id}?t=${showTime ? '1' : '0'}`
-      : calendarUrl;
-    return (
-      `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}` +
-      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrlFinal)
-    );
+    return `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
   }
 
   private async formatTransportNote(
@@ -605,18 +565,7 @@ export class WhatsappService {
     await this.appointments.remove(row.id);
     const when = formatAppointmentWhenHebrew(appointmentDate, true);
     const prefix = replyOpts.addressSecondPerson ? 'ביטלתי את התור שלך' : 'ביטלתי תור';
-    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
-    const ymd =
-      String(appointmentDate.getUTCFullYear()) +
-      String(appointmentDate.getUTCMonth() + 1).padStart(2, '0') +
-      String(appointmentDate.getUTCDate()).padStart(2, '0');
-    const calendarDayUrl = base
-      ? `${base}/api/c/d/${ymd}`
-      : buildGoogleCalendarDayViewUrl(appointmentDate);
-    return (
-      `${prefix}: ${row.title} (${when}).` +
-      formatCalendarActionLine(CALENDAR_REMOVE_LABEL, calendarDayUrl)
-    );
+    return `${prefix}: ${row.title} (${when}).`;
   }
 
   private async safeSend(target: WhatsappSendTarget, message: string) {

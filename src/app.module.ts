@@ -10,7 +10,6 @@ import { DocumentsModule } from './documents/documents.module';
 import { AiModule } from './ai/ai.module';
 import { QueryModule } from './query/query.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
-import { CalendarLinksModule } from './calendar-links/calendar-links.module';
 import { RootController } from './root.controller';
 
 @Module({
@@ -26,7 +25,6 @@ import { RootController } from './root.controller';
     AiModule,
     QueryModule,
     WhatsappModule,
-    CalendarLinksModule,
   ],
   controllers: [RootController],
 })
