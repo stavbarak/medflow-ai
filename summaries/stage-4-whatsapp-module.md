@@ -4,6 +4,28 @@ WhatsApp isn’t a separate product—it’s **the same brain** as the REST API,
 
 This note focuses on **end-to-end message flow**, how it connects to **Stage 3 AI**, and the **security gates** before any bot logic runs.
 
+## The backend story: a webhook adapter over the same services
+
+The easiest way to reason about Stage 4 is to treat WhatsApp as just another “client”:
+
+- The **web app** calls `/api/...` with a JWT.
+- WhatsApp calls **one webhook** (`/api/whatsapp`) with Meta’s JSON payload.
+
+After that, everything happens inside your backend:
+
+- verify signature (optional but recommended),
+- check sender is on the family roster,
+- parse intent (list / question / create / update / cancel),
+- call the same services you already trust (`AppointmentsService`, `QueryService`, `AiService`),
+- send a short Hebrew reply back through Meta Graph API.
+
+### Stage 4 routes (what Meta calls)
+
+- **`GET /api/whatsapp`** — verification handshake (Meta checks your token)
+- **`POST /api/whatsapp`** — inbound messages (Meta → your server)
+
+Both are implemented in `src/whatsapp/whatsapp.controller.ts` and forwarded to `src/whatsapp/whatsapp.service.ts`.
+
 ---
 
 ## Architecture at a glance

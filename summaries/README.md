@@ -18,6 +18,17 @@ These notes are for **first-time readers**: what we built, what was tricky, and 
 
 ---
 
+## The story in one page (how the stages connect)
+
+If you read the summaries in order, they’re meant to feel like one continuous build:
+
+- **Stage 1** is the “boring backend” foundation: a NestJS API with JWT auth and an `Appointment` table that can survive real family use.
+- **Stage 2** turns appointments into **care logistics**: notes + checklists (requirements) and a couple of “what’s next?” queries so the UI and bot can answer quickly.
+- **Stage 3** adds AI in a constrained way: the backend stays the source of truth, while the model helps **extract** fields from messy Hebrew text and **phrase** answers from DB facts (with guardrails).
+- **Stage 4** adds WhatsApp as another interface: Meta webhook in, intent routing, then the same services as the REST API; short Hebrew replies out.
+
+Once you have that mental model, the rest of the docs (database schema, Docker, deployment, Meta setup) are just “how to run it” details around the same core.
+
 ## Suggested onboarding path
 
 **Day 1 — run it locally**

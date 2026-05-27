@@ -4,6 +4,31 @@ By Stage 3, the database already “knows” things. **AI** is not there to inve
 
 This note walks you through **where the code lives**, **how data flows**, and **why we added extra guardrails** (especially around notes).
 
+## The backend story: AI as a helper, not the source of truth
+
+The key mindset shift is: the model is **not** “the system”. The backend stays responsible for:
+
+- **Reading and writing the database** (Prisma + Postgres).
+- **Validation** (DTOs + `class-validator`).
+- **Deterministic parsing** where it matters (dates/times in Israel/Jerusalem).
+- **Guardrails** against hallucinations (especially in notes).
+
+AI is a dependency that:
+
+- turns free text into **structured fields** (so WhatsApp can “write”),
+- and turns a JSON snapshot of saved data into **short Hebrew answers** (so WhatsApp/web can “read”).
+
+### Stage 3 routes (what you can call)
+
+Everything below is under `/api` and is JWT-protected:
+
+- **`POST /api/query/answer`** — grounded Q&A (reads DB facts, model only phrases)  
+  - `src/query/query.controller.ts` → `src/query/query.service.ts` → `src/ai/ai.service.ts`
+- **`POST /api/ai/extract`** — extraction for debugging/tools (turn text → fields)  
+  - `src/ai/ai.controller.ts` → `src/ai/ai.service.ts`
+
+WhatsApp uses the same services internally (it doesn’t need a separate endpoint).
+
 ---
 
 ## The big idea in one diagram

@@ -2,6 +2,20 @@
 
 Stage 1 gave you **appointments**. Real life immediately asks: *What do we need to bring? Who’s driving? Is the MRI form done?* Stage 2 is about **that** layer—still lightweight, still no calendar product.
 
+## The backend story: turning “appointments” into “care logistics”
+
+Stage 2 is where the backend stops being “a CRUD demo” and starts being a tool a family can rely on daily:
+
+- A single appointment now has **context** (notes) and **action items** (requirements/checklist).
+- Those extra fields flow through every read path: list screens, “next appointment”, and later the AI facts payload.
+- The API shape stays simple: requirements are **nested under an appointment** so you never wonder “which visit is this checklist for?”
+
+If you want the code map:
+
+- **Appointment storage** still lives in `src/appointments/appointments.service.ts`
+- **Checklist storage** lives in `src/requirements/requirements.service.ts`
+- The “what’s next?” logic is just query shape + ordering, exposed as routes in `src/appointments/appointments.controller.ts`
+
 ## What we built
 
 - **Notes** on appointments end-to-end: create, update, list, and every read path includes them. One `notes` field—not a separate “clinical note” vs “logistics note” split—until a real need appears.
@@ -15,6 +29,30 @@ Stage 1 gave you **appointments**. Real life immediately asks: *What do we need 
 
 - **Route ordering in Nest.** Static paths like `GET /appointments/upcoming` must be declared **before** `GET /appointments/:id`, otherwise `"upcoming"` gets captured as an id. Classic framework footgun—worth calling out for first-time readers.
 - **TypeScript + Jest + strict lint rules** when asserting on mock call arguments. We typed the Prisma `findMany` args explicitly so ESLint stays happy without `any` leaks.
+
+## Routes added/extended in Stage 2 (and who owns them)
+
+Everything is still under `/api`:
+
+### Appointment convenience queries
+
+In `src/appointments/appointments.controller.ts` (JWT required):
+
+- **`GET /api/appointments/next`** → `AppointmentsService.next()`  
+  “the single next appointment”, used for a quick home screen widget.
+- **`GET /api/appointments/upcoming`** → `AppointmentsService.upcoming(from, limit)`  
+  used by the UI and by the “facts payload” for AI.
+
+### Requirements (checklists)
+
+In `src/requirements/requirements.controller.ts` (JWT required):
+
+- **`POST /api/appointments/:appointmentId/requirements`** → create requirement
+- **`GET /api/appointments/:appointmentId/requirements`** → list requirements
+- **`PATCH /api/appointments/:appointmentId/requirements/:requirementId`** → update (including `isDone`)
+- **`DELETE /api/appointments/:appointmentId/requirements/:requirementId`** → remove
+
+The controller is thin; the behavior lives in `src/requirements/requirements.service.ts`.
 
 ## Why these choices (and not others)
 
