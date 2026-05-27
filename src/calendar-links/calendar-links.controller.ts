@@ -68,8 +68,9 @@ export class CalendarLinksController {
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename=\"appointment-${row.id}.ics\"`,
+      `inline; filename=\"appointment-${row.id}.ics\"`,
     );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).send(ics);
   }
