@@ -61,6 +61,7 @@ import {
   CALENDAR_SAVE_LABEL,
   formatCalendarActionLine,
 } from '../common/utils/google-calendar-link';
+import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import {
   type PatientReplyOptions,
   replyOptionsForSender,
@@ -246,12 +247,13 @@ export class WhatsappService {
       extracted.location?.trim() ||
       inferred.location ||
       'ייקבע';
-    const resolvedTransport =
-      await this.familyPersonas.resolveTransportFromExtraction({
-        transportDriver: extracted.transportDriver,
-        transportNotes: extracted.transportNotes,
-        legacyTransport: extracted.transport,
-      });
+    const resolvedTransport = textMentionsTransport(payload)
+      ? await this.familyPersonas.resolveTransportFromExtraction({
+          transportDriver: extracted.transportDriver,
+          transportNotes: extracted.transportNotes,
+          legacyTransport: extracted.transport,
+        })
+      : { transportUserId: null, transportNotes: '' };
     const created = await this.appointments.create({
       title,
       dateTime: extracted.dateTime,
@@ -369,14 +371,16 @@ export class WhatsappService {
       extracted.transportNotes?.trim() ||
       extracted.transport?.trim()
     ) {
-      const resolved =
-        await this.familyPersonas.resolveTransportFromExtraction({
-          transportDriver: extracted.transportDriver,
-          transportNotes: extracted.transportNotes,
-          legacyTransport: extracted.transport,
-        });
-      patch.transportUserId = resolved.transportUserId;
-      patch.transportNotes = resolved.transportNotes;
+      if (textMentionsTransport(payload)) {
+        const resolved =
+          await this.familyPersonas.resolveTransportFromExtraction({
+            transportDriver: extracted.transportDriver,
+            transportNotes: extracted.transportNotes,
+            legacyTransport: extracted.transport,
+          });
+        patch.transportUserId = resolved.transportUserId;
+        patch.transportNotes = resolved.transportNotes;
+      }
     }
 
     const shouldMergeNotes =
