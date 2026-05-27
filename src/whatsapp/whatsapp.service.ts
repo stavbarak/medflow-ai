@@ -278,15 +278,21 @@ export class WhatsappService {
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
     const transportNote = await this.formatTransportNote(created, replyOpts);
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
-    const calendarUrl = buildGoogleCalendarTemplateUrl({
-      title: created.title,
-      startDate: new Date(created.dateTime),
-      hasTime: extracted.hasTime,
-      location: created.location,
-      details: [created.notes?.trim(), transportNote.replace(/^ 🚗\s*/u, '').trim()]
-        .filter(Boolean)
-        .join('\n'),
-    });
+    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
+    const calendarUrl = base
+      ? `${base}/api/c/a/${created.id}?t=${extracted.hasTime ? '1' : '0'}`
+      : buildGoogleCalendarTemplateUrl({
+          title: created.title,
+          startDate: new Date(created.dateTime),
+          hasTime: extracted.hasTime,
+          location: created.location,
+          details: [
+            created.notes?.trim(),
+            transportNote.replace(/^ 🚗\s*/u, '').trim(),
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        });
     return (
       `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}` +
       formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrl)
@@ -458,9 +464,13 @@ export class WhatsappService {
         .filter(Boolean)
         .join('\n'),
     });
+    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
+    const calendarUrlFinal = base
+      ? `${base}/api/c/a/${updated.id}?t=${showTime ? '1' : '0'}`
+      : calendarUrl;
     return (
       `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}` +
-      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrl)
+      formatCalendarActionLine(CALENDAR_SAVE_LABEL, calendarUrlFinal)
     );
   }
 
@@ -595,7 +605,14 @@ export class WhatsappService {
     await this.appointments.remove(row.id);
     const when = formatAppointmentWhenHebrew(appointmentDate, true);
     const prefix = replyOpts.addressSecondPerson ? 'ביטלתי את התור שלך' : 'ביטלתי תור';
-    const calendarDayUrl = buildGoogleCalendarDayViewUrl(appointmentDate);
+    const base = this.config.get<string>('PUBLIC_BASE_URL')?.replace(/\/$/u, '');
+    const ymd =
+      String(appointmentDate.getUTCFullYear()) +
+      String(appointmentDate.getUTCMonth() + 1).padStart(2, '0') +
+      String(appointmentDate.getUTCDate()).padStart(2, '0');
+    const calendarDayUrl = base
+      ? `${base}/api/c/d/${ymd}`
+      : buildGoogleCalendarDayViewUrl(appointmentDate);
     return (
       `${prefix}: ${row.title} (${when}).` +
       formatCalendarActionLine(CALENDAR_REMOVE_LABEL, calendarDayUrl)
