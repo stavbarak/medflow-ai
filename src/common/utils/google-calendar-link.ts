@@ -1,10 +1,10 @@
 import { JERUSALEM_TZ, getJerusalemParts } from './appointment-datetime';
 
 /** Hebrew label for WhatsApp “add to calendar” line (URL follows on same line). */
-export const CALENDAR_SAVE_LABEL = 'שמירה ביומן';
+export const CALENDAR_SAVE_LABEL = 'קישור לשמירה ביומן';
 
 /** Hebrew label when an appointment was cancelled — opens that day in Google Calendar. */
-export const CALENDAR_REMOVE_LABEL = 'הסרה מהיומן';
+export const CALENDAR_REMOVE_LABEL = 'קישור ליומן להסרה ידנית';
 
 export function formatCalendarActionLine(label: string, url: string): string {
   return `\n${label}: ${url}`;
@@ -51,7 +51,9 @@ function addJerusalemDays(date: Date, days: number): Date {
   return d;
 }
 
-export function buildGoogleCalendarTemplateUrl(input: GoogleCalendarTemplateInput): string {
+export function buildGoogleCalendarTemplateUrl(
+  input: GoogleCalendarTemplateInput,
+): string {
   const base = 'https://calendar.google.com/calendar/render';
   const title = (input.title || 'תור').trim();
   const location = (input.location ?? '').trim();
@@ -73,7 +75,10 @@ export function buildGoogleCalendarTemplateUrl(input: GoogleCalendarTemplateInpu
     const durationMinutes = Math.max(5, input.durationMinutes ?? 60);
     const start = input.startDate;
     const end = new Date(start.getTime() + durationMinutes * 60_000);
-    params.set('dates', `${formatUtcForGoogle(start)}/${formatUtcForGoogle(end)}`);
+    params.set(
+      'dates',
+      `${formatUtcForGoogle(start)}/${formatUtcForGoogle(end)}`,
+    );
   } else {
     // All-day event in Jerusalem calendar dates. End is exclusive (next day).
     const startYmd = formatJerusalemYmd(input.startDate);
@@ -90,4 +95,3 @@ export function buildGoogleCalendarDayViewUrl(date: Date): string {
   const params = new URLSearchParams({ ctz: JERUSALEM_TZ });
   return `https://calendar.google.com/calendar/r/day/${year}/${month}/${day}?${params.toString()}`;
 }
-

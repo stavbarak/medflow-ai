@@ -19,10 +19,14 @@ describe('buildGoogleCalendarTemplateUrl', () => {
       durationMinutes: 60,
     });
 
-    expect(url).toContain('https://calendar.google.com/calendar/render?action=TEMPLATE');
+    expect(url).toContain(
+      'https://calendar.google.com/calendar/render?action=TEMPLATE',
+    );
     expect(url).toContain('ctz=Asia%2FJerusalem');
     expect(url).toContain('text=%D7%91%D7%93%D7%99%D7%A7%D7%94');
-    expect(url).toContain('location=%D7%90%D7%99%D7%9B%D7%99%D7%9C%D7%95%D7%91');
+    expect(url).toContain(
+      'location=%D7%90%D7%99%D7%9B%D7%99%D7%9C%D7%95%D7%91',
+    );
     expect(url).toContain('details=%D7%9C%D7%94%D7%91%D7%99%D7%90');
     expect(url).toContain('dates=20260805T094500Z%2F20260805T104500Z');
   });
@@ -40,12 +44,12 @@ describe('buildGoogleCalendarTemplateUrl', () => {
   });
 
   it('formats Hebrew calendar action lines for WhatsApp', () => {
-    expect(formatCalendarActionLine(CALENDAR_SAVE_LABEL, 'https://example.com')).toBe(
-      '\nשמירה ביומן: https://example.com',
-    );
-    expect(formatCalendarActionLine(CALENDAR_REMOVE_LABEL, 'https://example.com')).toBe(
-      '\nהסרה מהיומן: https://example.com',
-    );
+    expect(
+      formatCalendarActionLine(CALENDAR_SAVE_LABEL, 'https://example.com'),
+    ).toBe('\nקישור לשמירה ביומן: https://example.com');
+    expect(
+      formatCalendarActionLine(CALENDAR_REMOVE_LABEL, 'https://example.com'),
+    ).toBe('\nקישור ליומן להסרה ידנית: https://example.com');
   });
 
   it('opens Google Calendar on the Jerusalem day for manual removal', () => {
@@ -55,4 +59,3 @@ describe('buildGoogleCalendarTemplateUrl', () => {
     );
   });
 });
-
