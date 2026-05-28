@@ -34,6 +34,11 @@ export class QueryService {
     });
     return {
       generatedAt: now.toISOString(),
+      scope: {
+        kind: 'upcoming',
+        limit: 15,
+        count: upcoming.length,
+      },
       upcomingAppointments: upcoming.map((a) => ({
         id: a.id,
         title: a.title,
