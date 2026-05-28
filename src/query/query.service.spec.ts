@@ -14,6 +14,8 @@ describe('QueryService (Stage 3)', () => {
   const findMany = jest.fn<FindManyResult, [FindManyArgs?]>();
   const count = jest.fn<number, any[]>();
   const answerQuestionFromFacts = jest.fn();
+  const classifyQuestionMode = jest.fn();
+  const answerFreeQuestion = jest.fn();
 
   const prismaMock = {
     appointment: {
@@ -24,6 +26,8 @@ describe('QueryService (Stage 3)', () => {
 
   const aiMock = {
     answerQuestionFromFacts,
+    classifyQuestionMode,
+    answerFreeQuestion,
   };
 
   const familyPersonasMock = {
@@ -72,6 +76,7 @@ describe('QueryService (Stage 3)', () => {
       },
     ]);
     answerQuestionFromFacts.mockResolvedValue('התור הבא ב-15.7 ב-09:30.');
+    classifyQuestionMode.mockResolvedValue({ mode: 'grounded' });
 
     count.mockResolvedValue(0);
     const answer = await service.answerQuestion('מתי התור הבא?');
@@ -99,6 +104,7 @@ describe('QueryService (Stage 3)', () => {
     answerQuestionFromFacts.mockResolvedValue(
       'אין תורים עתידיים שמורים במערכת.',
     );
+    classifyQuestionMode.mockResolvedValue({ mode: 'grounded' });
 
     await service.answerQuestion('מה צריך להביא?');
 
@@ -106,5 +112,18 @@ describe('QueryService (Stage 3)', () => {
       'מה צריך להביא?',
       expect.stringContaining('"upcomingAppointments":[]'),
     );
+  });
+
+  it('routes non-DB questions to free mode without touching Prisma', async () => {
+    classifyQuestionMode.mockResolvedValue({ mode: 'free' });
+    answerFreeQuestion.mockResolvedValue('42.');
+
+    const answer = await service.answerQuestion('מה משמעות החיים?');
+
+    expect(findMany).not.toHaveBeenCalled();
+    expect(count).not.toHaveBeenCalled();
+    expect(answerQuestionFromFacts).not.toHaveBeenCalled();
+    expect(answerFreeQuestion).toHaveBeenCalledWith('מה משמעות החיים?');
+    expect(answer).toBe('42.');
   });
 });

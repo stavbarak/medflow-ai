@@ -217,6 +217,10 @@ export class QueryService {
   }
 
   async answerQuestion(question: string) {
+    const mode = await this.ai.classifyQuestionMode(question);
+    if (mode.mode === 'free') {
+      return this.ai.answerFreeQuestion(question);
+    }
     const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson);
@@ -279,6 +283,10 @@ export class QueryService {
     if (!question) {
       const facts = await this.buildUpcomingFactsPayload();
       return this.formatFactsDumpHebrew(facts, replyOptions);
+    }
+    const mode = await this.ai.classifyQuestionMode(question, replyOptions);
+    if (mode.mode === 'free') {
+      return this.ai.answerFreeQuestion(question, replyOptions);
     }
     const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);

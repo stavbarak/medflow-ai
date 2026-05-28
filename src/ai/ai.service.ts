@@ -286,4 +286,76 @@ ${addressHint ? ` ${addressHint}` : ''}${personas}`,
     }
     return text;
   }
+
+  async classifyQuestionMode(
+    question: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<{ mode: 'grounded' | 'free'; reason?: string }> {
+    const openai = this.ensureClient();
+    const label = patientLabelForPrompt(this.patientLabel, replyOptions);
+    const personas = await this.familyPersonaSuffix();
+    const completion = await openai.chat.completions.create({
+      model: this.model,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are routing a Hebrew question for a family medical-appointments assistant (${label}).
+Return JSON only: { "mode": "grounded" | "free", "reason": "..." }.
+
+Choose "grounded" if the question is about stored appointment data: appointments, dates/times, locations, requirements/checklists, transport/driving, responsible person, what to bring, next/upcoming/past counts.
+
+Choose "free" if the question is general knowledge or chit-chat unrelated to the saved appointments (e.g. meaning of life, jokes, definitions, weather).
+
+Be conservative: if it plausibly refers to appointments or the calendar, choose "grounded".
+Hebrew only.${personas}`,
+        },
+        { role: 'user', content: question },
+      ],
+    });
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) {
+      return { mode: 'grounded' };
+    }
+    try {
+      const parsed = JSON.parse(raw) as any;
+      if (parsed?.mode === 'free' || parsed?.mode === 'grounded') {
+        return { mode: parsed.mode, reason: typeof parsed.reason === 'string' ? parsed.reason : undefined };
+      }
+    } catch {
+      // ignore
+    }
+    return { mode: 'grounded' };
+  }
+
+  async answerFreeQuestion(
+    question: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<string> {
+    const openai = this.ensureClient();
+    const addressHint = patientAnswerInstruction(replyOptions);
+    const personas = await this.familyPersonaSuffix();
+    const completion = await openai.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a friendly, ChatGPT-like assistant. Answer in Hebrew only.
+Do NOT mention appointments, databases, or system data unless the user explicitly asks about them.
+
+Safety:
+- Do not provide medical diagnosis or definitive treatment instructions.
+- If the user asks a medical question, provide general information and recommend consulting a clinician.
+
+Style:
+- Natural, flowing Hebrew.
+- Prefer a direct answer first, then a short list only if helpful.
+${addressHint ? ` ${addressHint}` : ''}${personas}`,
+        },
+        { role: 'user', content: question },
+      ],
+    });
+    const text = completion.choices[0]?.message?.content?.trim();
+    return text || 'לא הצלחתי להבין. נסו לנסח שוב.';
+  }
 }
