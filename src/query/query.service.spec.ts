@@ -89,7 +89,7 @@ describe('QueryService (Stage 3)', () => {
     const facts = JSON.parse(factsJson) as any;
     expect(Array.isArray(facts.upcomingAppointments)).toBe(true);
     expect(facts.scope?.kind).toBe('qna');
-    expect(facts.stats).toBeDefined();
+    // stats is only included for explicit past/"so far" questions
     expect(answer).toBe('התור הבא ב-15.7 ב-09:30.');
   });
 

@@ -87,22 +87,102 @@ export class QueryService {
     };
   }
 
-  /** Expanded facts for Q&A: upcoming + recent history + aggregates. */
-  async buildQnAFactsPayload() {
+  private isPastOrSoFarQuestion(question: string): boolean {
+    return /(עד\s*היום|עד\s*כה|עד\s*עכשיו|עד\s*כאן|עד\s*עכשיו|היה|כבר|בעבר|פעם|מה\s+היה|כמה\s+היו|עד\s+עכשיו)/iu.test(
+      question,
+    );
+  }
+
+  private extractIvKeyword(question: string): string | null {
+    // Examples: "עירוי קיטרודה", "עירויי קיטרודה", "עירוי קיטרודה כבר היו..."
+    const m = /עירוי(?:י)?\s*([א-ת][א-ת"'\-]{2,})/iu.exec(question);
+    if (!m?.[1]) {
+      return null;
+    }
+    const word = m[1].trim();
+    if (word.length < 3) {
+      return null;
+    }
+    return word;
+  }
+
+  /** Expanded facts for Q&A: always upcoming; optionally past+stats for "so far" questions. */
+  async buildQnAFactsPayload(question: string) {
     const now = new Date();
     const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-    const [upcoming, recentPast, ivTreatmentsSoFar] = await Promise.all([
-      this.loadAppointmentsForFacts({ from: now, order: 'asc', take: 30 }),
-      this.loadAppointmentsForFacts({ from: pastFrom, to: now, order: 'desc', take: 200 }),
-      this.prisma.appointment.count({
-        where: {
-          OR: [
-            { title: { contains: 'עירוי' } },
-            { notes: { contains: 'עירוי' } },
-          ],
-        },
-      }),
+    const includePast = this.isPastOrSoFarQuestion(question);
+    const ivKeyword = this.extractIvKeyword(question);
+    const upcomingPromise = this.loadAppointmentsForFacts({
+      from: now,
+      order: 'asc',
+      take: 30,
+    });
+    const recentPastPromise = includePast
+      ? this.loadAppointmentsForFacts({
+          from: pastFrom,
+          to: now,
+          order: 'desc',
+          take: 200,
+        })
+      : Promise.resolve([]);
+    const ivWhere = {
+      OR: [{ title: { contains: 'עירוי' } }, { notes: { contains: 'עירוי' } }],
+    };
+    const ivTreatmentsPastCountPromise = includePast
+      ? this.prisma.appointment.count({
+          where: {
+            AND: [ivWhere, { dateTime: { lt: now } }],
+          },
+        })
+      : Promise.resolve(0);
+    const ivTreatmentsUpcomingCountPromise = includePast
+      ? this.prisma.appointment.count({
+          where: {
+            AND: [ivWhere, { dateTime: { gte: now } }],
+          },
+        })
+      : Promise.resolve(0);
+
+    const ivKeywordStatsPromise = includePast && ivKeyword
+      ? Promise.all([
+          this.prisma.appointment.count({
+            where: {
+              AND: [
+                ivWhere,
+                { dateTime: { lt: now } },
+                {
+                  OR: [
+                    { title: { contains: ivKeyword } },
+                    { notes: { contains: ivKeyword } },
+                  ],
+                },
+              ],
+            },
+          }),
+          this.prisma.appointment.count({
+            where: {
+              AND: [
+                ivWhere,
+                { dateTime: { gte: now } },
+                {
+                  OR: [
+                    { title: { contains: ivKeyword } },
+                    { notes: { contains: ivKeyword } },
+                  ],
+                },
+              ],
+            },
+          }),
+        ])
+      : Promise.resolve(null);
+
+    const [upcoming, recentPast, ivTreatmentsPastCount, ivTreatmentsUpcomingCount, ivKeywordStats] = await Promise.all([
+      upcomingPromise,
+      recentPastPromise,
+      ivTreatmentsPastCountPromise,
+      ivTreatmentsUpcomingCountPromise,
+      ivKeywordStatsPromise,
     ]);
 
     return {
@@ -114,17 +194,30 @@ export class QueryService {
         recentPastLimit: 200,
         upcomingCount: upcoming.length,
         recentPastCount: recentPast.length,
+        includePast,
       },
-      stats: {
-        ivTreatmentsSoFar,
-      },
+      stats: includePast
+        ? {
+            ivTreatmentsPastCount,
+            ivTreatmentsUpcomingCount,
+            ivTreatmentsTotalCount: ivTreatmentsPastCount + ivTreatmentsUpcomingCount,
+            ivTreatmentKeyword: ivKeyword,
+            ivKeywordPastCount: ivKeywordStats ? ivKeywordStats[0] : undefined,
+            ivKeywordUpcomingCount: ivKeywordStats ? ivKeywordStats[1] : undefined,
+            ivKeywordTotalCount: ivKeywordStats
+              ? ivKeywordStats[0] + ivKeywordStats[1]
+              : undefined,
+          }
+        : undefined,
       upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
-      recentPastAppointments: recentPast.map((a) => this.toFactRow(a)),
+      recentPastAppointments: includePast
+        ? recentPast.map((a) => this.toFactRow(a))
+        : [],
     };
   }
 
   async answerQuestion(question: string) {
-    const facts = await this.buildQnAFactsPayload();
+    const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson);
   }
@@ -187,7 +280,7 @@ export class QueryService {
       const facts = await this.buildUpcomingFactsPayload();
       return this.formatFactsDumpHebrew(facts, replyOptions);
     }
-    const facts = await this.buildQnAFactsPayload();
+    const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson, replyOptions);
   }

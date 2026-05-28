@@ -263,6 +263,11 @@ Timeframe defaulting (very important):
 - If you're not sure about the timeframe, ask the user to clarify.
 - Only use recentPastAppointments when the question clearly asks about past/history.
 
+Counting rules:
+- If the user asks "כמה ... כבר היו" / "עד היום" / "עד כה" — count only past/completed items (dateTime < now). If FACTS.stats includes "*PastCount", use it.
+- If the user asks about "כמה עוד יהיו" / "כמה יש בעתיד" — use upcoming counts.
+- If the user asks a combined question, you may mention both (past + upcoming) explicitly.
+
 If the question says "כל התורים" / "האם לכל התורים..." but FACTS has a scope/limit (see FACTS.scope), answer explicitly based on the facts you have (e.g. "לפי 15 התורים הקרובים שמופיעים במערכת...").
 
 If the answer is missing from FACTS, say what is missing and what the user can add (briefly). If you don’t understand the question, ask a single clarifying question.
