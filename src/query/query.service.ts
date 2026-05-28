@@ -19,18 +19,62 @@ export class QueryService {
     private readonly familyPersonas: FamilyPersonaService,
   ) {}
 
-  /** Builds JSON facts from DB for grounded answers (UTC stored times). */
-  async buildFactsPayload() {
-    const now = new Date();
-    const upcoming = await this.prisma.appointment.findMany({
-      where: { dateTime: { gte: now } },
-      orderBy: { dateTime: 'asc' },
-      take: 15,
-      include: {
-        requirements: true,
-        responsibleUser: { select: transportUserSelect },
-        transportUser: { select: transportUserSelect },
+  private static readonly factsInclude = {
+    requirements: true,
+    responsibleUser: { select: transportUserSelect },
+    transportUser: { select: transportUserSelect },
+  } as const;
+
+  private async loadAppointmentsForFacts(opts: {
+    from: Date;
+    to?: Date;
+    order: 'asc' | 'desc';
+    take: number;
+  }): Promise<any[]> {
+    return this.prisma.appointment.findMany({
+      where: {
+        dateTime: {
+          gte: opts.from,
+          ...(opts.to ? { lt: opts.to } : {}),
+        },
       },
+      orderBy: { dateTime: opts.order },
+      take: opts.take,
+      include: QueryService.factsInclude,
+    });
+  }
+
+  private toFactRow(
+    a: any,
+  ) {
+    return {
+      id: a.id,
+      title: a.title,
+      dateTime: a.dateTime.toISOString(),
+      whenHebrew: formatAppointmentWhenHebrew(a.dateTime, true),
+      location: a.location,
+      notes: a.notes,
+      transportUser: transportUserDisplay(a.transportUser),
+      transportNotes: a.transportNotes,
+      transportDisplay: formatAppointmentTransportHebrew({
+        transportUser: transportUserDisplay(a.transportUser),
+        transportNotes: a.transportNotes,
+      }),
+      responsible: transportUserDisplay(a.responsibleUser),
+      requirements: a.requirements.map((r: any) => ({
+        description: r.description,
+        isDone: r.isDone,
+      })),
+    };
+  }
+
+  /** Upcoming-only facts (used for wake-word list + lightweight Q&A). */
+  async buildUpcomingFactsPayload() {
+    const now = new Date();
+    const upcoming = await this.loadAppointmentsForFacts({
+      from: now,
+      order: 'asc',
+      take: 15,
     });
     return {
       generatedAt: now.toISOString(),
@@ -39,36 +83,55 @@ export class QueryService {
         limit: 15,
         count: upcoming.length,
       },
-      upcomingAppointments: upcoming.map((a) => ({
-        id: a.id,
-        title: a.title,
-        dateTime: a.dateTime.toISOString(),
-        location: a.location,
-        notes: a.notes,
-        transportUser: transportUserDisplay(a.transportUser),
-        transportNotes: a.transportNotes,
-        transportDisplay: formatAppointmentTransportHebrew({
-          transportUser: transportUserDisplay(a.transportUser),
-          transportNotes: a.transportNotes,
-        }),
-        responsible: transportUserDisplay(a.responsibleUser),
-        requirements: a.requirements.map((r) => ({
-          description: r.description,
-          isDone: r.isDone,
-        })),
-      })),
+      upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
+    };
+  }
+
+  /** Expanded facts for Q&A: upcoming + recent history + aggregates. */
+  async buildQnAFactsPayload() {
+    const now = new Date();
+    const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+    const [upcoming, recentPast, ivTreatmentsSoFar] = await Promise.all([
+      this.loadAppointmentsForFacts({ from: now, order: 'asc', take: 30 }),
+      this.loadAppointmentsForFacts({ from: pastFrom, to: now, order: 'desc', take: 200 }),
+      this.prisma.appointment.count({
+        where: {
+          OR: [
+            { title: { contains: 'עירוי' } },
+            { notes: { contains: 'עירוי' } },
+          ],
+        },
+      }),
+    ]);
+
+    return {
+      generatedAt: now.toISOString(),
+      scope: {
+        kind: 'qna',
+        upcomingLimit: 30,
+        recentPastDays: 365,
+        recentPastLimit: 200,
+        upcomingCount: upcoming.length,
+        recentPastCount: recentPast.length,
+      },
+      stats: {
+        ivTreatmentsSoFar,
+      },
+      upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
+      recentPastAppointments: recentPast.map((a) => this.toFactRow(a)),
     };
   }
 
   async answerQuestion(question: string) {
-    const facts = await this.buildFactsPayload();
+    const facts = await this.buildQnAFactsPayload();
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson);
   }
 
   /** Hebrew summary of upcoming appointments + requirements (no LLM). */
   async formatFactsDumpHebrew(
-    facts: Awaited<ReturnType<QueryService['buildFactsPayload']>>,
+    facts: Awaited<ReturnType<QueryService['buildUpcomingFactsPayload']>>,
     replyOptions?: PatientReplyOptions,
   ): Promise<string> {
     const { upcomingAppointments } = facts;
@@ -103,7 +166,7 @@ export class QueryService {
       if (a.responsible?.name) {
         lines.push(`  👤 אחראי: ${a.responsible.name}`);
       }
-      const openReqs = a.requirements.filter((r) => !r.isDone);
+      const openReqs = a.requirements.filter((r: { isDone: boolean }) => !r.isDone);
       if (openReqs.length) {
         lines.push('  משימות:');
         for (const r of openReqs) {
@@ -120,10 +183,11 @@ export class QueryService {
     replyOptions?: PatientReplyOptions,
   ): Promise<string> {
     const question = stripWakeWord(userText);
-    const facts = await this.buildFactsPayload();
     if (!question) {
+      const facts = await this.buildUpcomingFactsPayload();
       return this.formatFactsDumpHebrew(facts, replyOptions);
     }
+    const facts = await this.buildQnAFactsPayload();
     const factsJson = JSON.stringify(facts, null, 0);
     return this.ai.answerQuestionFromFacts(question, factsJson, replyOptions);
   }
