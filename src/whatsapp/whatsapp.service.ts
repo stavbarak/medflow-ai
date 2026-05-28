@@ -178,7 +178,7 @@ export class WhatsappService {
           await this.safeSend(
             replyTo,
             await this.query.formatFactsDumpHebrew(
-              await this.query.buildFactsPayload(),
+              await this.query.buildUpcomingFactsPayload(),
               replyOpts,
             ),
           );
