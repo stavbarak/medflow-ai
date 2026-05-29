@@ -1,6 +1,6 @@
 # WhatsApp Groups API — not used
 
-The family uses **private 1:1** chats with the business number. Each person sends messages that include the wake word **חנטריש** (see [Stage 4 — WhatsApp](stage-4-whatsapp-module.md)).
+The family uses **private 1:1** chats with the business number, where **no wake word is needed** — the bot replies to every message. The wake word **חנטריש** is only required in group chats, which we don't currently use (see [Stage 4 — WhatsApp](stage-4-whatsapp-module.md)).
 
 We explored Meta’s **Groups API** (On Behalf Of / OBA) but did not adopt it — many numbers hit error **131215** (Groups API not available). The CLI scripts for create/list/invite were removed from this repo.
 

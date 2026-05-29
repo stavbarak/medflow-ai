@@ -2,7 +2,7 @@
 
 Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
 
-MedFlowAI is a Hebrew-first family assistant for coordinating a single patient’s medical appointments: family members can add, update, cancel, and ask questions in natural WhatsApp messages (wake word “חנטריש”), and the system stores everything in Postgres (appointments, prep notes, checklists, and optional transport) while using an LLM to extract structured details and answer grounded questions from the saved data.
+MedFlowAI is a Hebrew-first family assistant for coordinating a single patient’s medical appointments: family members can add, update, cancel, and ask questions in natural WhatsApp messages (1:1 chats need no wake word; group chats use “חנטריש”), and the system stores everything in Postgres (appointments, prep notes, checklists, and optional transport) while using an LLM to extract structured details and answer grounded, conversational questions from the saved data.
 
 **New here?** Friendly write-ups live in **[`summaries/`](summaries/README.md)** (stages, Docker, Meta, deployment).
 
@@ -120,11 +120,11 @@ Without **`DATABASE_URL`** (from Postgres), the container will fail at **`prisma
   - **Plain text** only works if you messaged the business number in the **last 24 hours** (rolling window from your last inbound message — not “once ever”).
   - For codes **anytime** (no 24h wait), add an approved **OTP template** in Meta and set `WHATSAPP_OTP_TEMPLATE_NAME` (+ optional `WHATSAPP_OTP_TEMPLATE_LANG=he`) on Railway.
   - If send fails, the app shows a Hebrew error (no silent success).
-- **WhatsApp bot (חנטריש):** only replies when the message includes `חנטריש`. Examples:
-  - `חנטריש` — list upcoming appointments from the DB
-  - `חנטריש, לאבא יש תור ב-27.5 ב…` — create (location defaults to `ייקבע` if omitted)
-  - `חנטריש תבטל את התור ב-27.5` — delete all appointments on that calendar day
-  - `חנטריש מתי התור הבא?` — grounded Q&A
+- **WhatsApp bot:** in a **1:1 DM** it replies to every message (no wake word needed); in a **group chat** the message must include `חנטריש`. It addresses you by name with gendered Hebrew, remembers recent turns for follow-ups, and confirms before destructive cancels. Examples (DM; prefix with `חנטריש` in a group):
+  - `מה התורים?` — list upcoming appointments from the DB
+  - `לאבא יש תור ב-27.5 ב…` — create (location defaults to `ייקבע` if omitted)
+  - `תבטל את התור ב-27.5` — asks `…האם לבטל?` and deletes only after you reply `כן`
+  - `מתי התור הבא?` then `ומה עם הבא?` — grounded Q&A with follow-up memory
 - **Clear fake data / start fresh:** locally `npm run prisma:reset` (wipes DB, re-runs migrations, empty seed). On Railway: Postgres query or shell with the same command against `DATABASE_URL`.
 - **Register again:** delete the old row first (Railway Postgres → Query, or Shell with `npx prisma db execute`):
 

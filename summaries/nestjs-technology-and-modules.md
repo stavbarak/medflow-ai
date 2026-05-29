@@ -132,9 +132,17 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 ### `WhatsappModule`
 
-**Role:** **Meta WhatsApp Cloud API** — webhook verification, inbound messages, wake-word orchestration.
+**Role:** **Meta WhatsApp Cloud API** — webhook verification, inbound messages, conversational orchestration.
 
-**How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on **allowlist only** (no web registration required for WhatsApp), classifies intent (`whatsapp-wake-intent.ts`), and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
+**How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on **allowlist only** (no web registration required for WhatsApp), then gates the **wake word by chat type** — required only in group chats, skipped in 1:1 DMs. It classifies intent (`whatsapp-wake-intent.ts`) and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. Replies are **personalized** (sender name + gendered Hebrew), destructive cancels go through a **confirmation** step, and recent turns are pulled from **`ConversationService`** for follow-ups. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
+
+---
+
+### `ConversationModule`
+
+**Role:** **Short-term WhatsApp memory + pending confirmations** — lets the bot handle follow-up questions and confirm destructive actions.
+
+**How:** Provides **`ConversationService`**, which stores per-sender **`ConversationTurn`** rows (threaded into Q&A) and at most one **`PendingAction`** per sender (a cancel awaiting `כן`). Writes prune aggressively (TTL + per-sender cap) and a daily **`@Cron`** sweep (via `ScheduleModule`) clears stale rows, so Postgres stays small. Imported by `WhatsappModule`. See [Database schema](database-schema-and-connections.md#conversationturn--short-term-whatsapp-memory).
 
 ---
 
@@ -144,10 +152,11 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** A single `@Module({ imports: [...] })` list. Order matters for static files: **feature modules first**, **`ServeStaticModule`** last so API routes win for `/api` and the SPA fallback handles client-side routes.
 
-```15:30:src/app.module.ts
+```17:34:src/app.module.ts
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     PhoneAllowlistModule,
     AuthModule,
@@ -157,6 +166,7 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
     DocumentsModule,
     AiModule,
     QueryModule,
+    ConversationModule,
     WhatsappModule,
   ],
   controllers: [RootController],
@@ -183,11 +193,14 @@ flowchart TB
   WhatsappModule --> QueryModule
   WhatsappModule --> AppointmentsModule
   WhatsappModule --> RequirementsModule
+  WhatsappModule --> ConversationModule
   AuthModule --> WhatsappModule
 
   AuthModule -.-> PhoneAllowlistModule
   WhatsappModule -.-> PhoneAllowlistModule
   QueryModule -.-> PrismaModule
+  ConversationModule -.-> PrismaModule
+  ConversationModule -.-> ScheduleModule
   AiModule -.-> ConfigModule
 ```
 

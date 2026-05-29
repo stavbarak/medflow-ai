@@ -25,7 +25,7 @@ If you read the summaries in order, they’re meant to feel like one continuous 
 - **Stage 1** is the “boring backend” foundation: a NestJS API with JWT auth and an `Appointment` table that can survive real family use.
 - **Stage 2** turns appointments into **care logistics**: notes + checklists (requirements) and a couple of “what’s next?” queries so the UI and bot can answer quickly.
 - **Stage 3** adds AI in a constrained way: the backend stays the source of truth, while the model helps **extract** fields from messy Hebrew text and **phrase** answers from DB facts (with guardrails).
-- **Stage 4** adds WhatsApp as another interface: Meta webhook in, intent routing, then the same services as the REST API; short Hebrew replies out.
+- **Stage 4** adds WhatsApp as another interface: Meta webhook in, intent routing, then the same services as the REST API; short, personalized Hebrew replies out. 1:1 DMs need no wake word, recent turns are remembered for follow-ups, and destructive cancels ask for confirmation first.
 
 Once you have that mental model, the rest of the docs (database schema, Docker, deployment, Meta setup) are just “how to run it” details around the same core.
 
@@ -69,6 +69,7 @@ flowchart LR
 | All OpenAI calls | `src/ai/ai.service.ts` |
 | DB → facts → Q&A | `src/query/query.service.ts` |
 | WhatsApp webhook + intents | `src/whatsapp/whatsapp.service.ts`, `whatsapp-wake-intent.ts` |
+| Conversation memory + confirmations | `src/conversation/conversation.service.ts` |
 | Anti-hallucination for notes | `src/common/utils/notes-grounding.ts` |
 | Hebrew date parsing | `src/common/utils/appointment-datetime.ts` |
 | Family roster + allowlist | `src/phone-allowlist/family-member.service.ts` |
