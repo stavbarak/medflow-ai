@@ -153,38 +153,6 @@ textarea {
   cursor: pointer;
 }
 
-.link {
-  border: none;
-  background: transparent;
-  color: #1d4ed8;
-  padding: 0;
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.small {
-  font-size: 0.85rem;
-  padding: 0.3rem 0.6rem;
-  margin-top: 0;
-}
-
-.name-edit {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 0.15rem;
-}
-
-.name-edit input {
-  width: auto;
-  flex: 1 1 8rem;
-  padding: 0.35rem 0.6rem;
-  margin: 0;
-}
-
 .err {
   color: #b91c1c;
   font-size: 0.9rem;
