@@ -88,3 +88,25 @@ model MedicalDocument {
   uploadedBy       User         @relation(fields: [uploadedByUserId], references: [id])
   createdAt        DateTime     @default(now())
 }
+
+/// Short-term per-sender conversation memory for WhatsApp follow-ups. Ephemeral: pruned aggressively.
+model ConversationTurn {
+  id         String   @id @default(uuid())
+  senderWaId String
+  role       String // 'user' | 'assistant'
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([senderWaId, createdAt])
+}
+
+/// A destructive action (e.g. cancel) awaiting the sender's confirmation. One per sender.
+model PendingAction {
+  id            String   @id @default(uuid())
+  senderWaId    String   @unique
+  kind          String // 'cancel'
+  appointmentId String
+  summary       String   @default("")
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+}

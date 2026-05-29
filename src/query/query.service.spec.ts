@@ -14,8 +14,6 @@ describe('QueryService (Stage 3)', () => {
   const findMany = jest.fn<FindManyResult, [FindManyArgs?]>();
   const count = jest.fn<number, any[]>();
   const answerQuestionFromFacts = jest.fn();
-  const classifyQuestionMode = jest.fn();
-  const answerFreeQuestion = jest.fn();
 
   const prismaMock = {
     appointment: {
@@ -26,8 +24,6 @@ describe('QueryService (Stage 3)', () => {
 
   const aiMock = {
     answerQuestionFromFacts,
-    classifyQuestionMode,
-    answerFreeQuestion,
   };
 
   const familyPersonasMock = {
@@ -76,7 +72,6 @@ describe('QueryService (Stage 3)', () => {
       },
     ]);
     answerQuestionFromFacts.mockResolvedValue('התור הבא ב-15.7 ב-09:30.');
-    classifyQuestionMode.mockResolvedValue({ mode: 'grounded' });
 
     count.mockResolvedValue(0);
     const answer = await service.answerQuestion('מתי התור הבא?');
@@ -104,26 +99,59 @@ describe('QueryService (Stage 3)', () => {
     answerQuestionFromFacts.mockResolvedValue(
       'אין תורים עתידיים שמורים במערכת.',
     );
-    classifyQuestionMode.mockResolvedValue({ mode: 'grounded' });
 
     await service.answerQuestion('מה צריך להביא?');
 
     expect(answerQuestionFromFacts).toHaveBeenCalledWith(
       'מה צריך להביא?',
       expect.stringContaining('"upcomingAppointments":[]'),
+      undefined,
+      undefined,
     );
   });
 
-  it('routes non-DB questions to free mode without touching Prisma', async () => {
-    classifyQuestionMode.mockResolvedValue({ mode: 'free' });
-    answerFreeQuestion.mockResolvedValue('42.');
+  it('always answers from DB facts (no free-mode routing)', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+    answerQuestionFromFacts.mockResolvedValue('42.');
 
     const answer = await service.answerQuestion('מה משמעות החיים?');
 
-    expect(findMany).not.toHaveBeenCalled();
-    expect(count).not.toHaveBeenCalled();
-    expect(answerQuestionFromFacts).not.toHaveBeenCalled();
-    expect(answerFreeQuestion).toHaveBeenCalledWith('מה משמעות החיים?');
+    // Even an off-topic question loads facts and goes through the grounded path.
+    expect(findMany).toHaveBeenCalled();
+    expect(answerQuestionFromFacts).toHaveBeenCalledTimes(1);
     expect(answer).toBe('42.');
+  });
+
+  it('includes past appointments + keyword stats for count questions', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(2);
+    answerQuestionFromFacts.mockResolvedValue('יש שני פט סיטי.');
+
+    await service.answerQuestion('כמה פט סיטי יש?');
+
+    const [, factsJson] = answerQuestionFromFacts.mock.calls[0] as [
+      string,
+      string,
+    ];
+    const facts = JSON.parse(factsJson) as any;
+    expect(facts.scope.includePast).toBe(true);
+    expect(facts.stats?.keyword).toBe('פט סיטי');
+    expect(facts.stats?.keywordTotalCount).toBe(4);
+    // past + upcoming counts each queried
+    expect(count).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries once then strips stray non-Hebrew words (Hebrew-only guard)', async () => {
+    findMany.mockResolvedValue([]);
+    count.mockResolvedValue(0);
+    answerQuestionFromFacts.mockResolvedValue('כן, אני puedo לעזור לך.');
+
+    const answer = await service.answerQuestion('מה שלומך?');
+
+    // First answer leaked Latin → one retry; still leaked → stripped.
+    expect(answerQuestionFromFacts).toHaveBeenCalledTimes(2);
+    expect(answer).not.toMatch(/puedo/);
+    expect(answer).toBe('כן, אני לעזור לך.');
   });
 });

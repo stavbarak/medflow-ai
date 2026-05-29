@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { PhoneAllowlistModule } from './phone-allowlist/phone-allowlist.module';
 import { AuthModule } from './auth/auth.module';
@@ -10,11 +11,13 @@ import { DocumentsModule } from './documents/documents.module';
 import { AiModule } from './ai/ai.module';
 import { QueryModule } from './query/query.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { ConversationModule } from './conversation/conversation.module';
 import { RootController } from './root.controller';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     PhoneAllowlistModule,
     AuthModule,
@@ -24,6 +27,7 @@ import { RootController } from './root.controller';
     DocumentsModule,
     AiModule,
     QueryModule,
+    ConversationModule,
     WhatsappModule,
   ],
   controllers: [RootController],

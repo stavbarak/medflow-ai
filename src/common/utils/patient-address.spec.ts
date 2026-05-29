@@ -2,6 +2,7 @@ import {
   adaptHebrewForPatientSecondPerson,
   isPatientPhone,
   replyOptionsForSender,
+  senderPersonaInstruction,
 } from './patient-address';
 
 const PATIENT = '972521111111';
@@ -30,5 +31,25 @@ describe('patient-address', () => {
     expect(adaptHebrewForPatientSecondPerson('שירי תיקח ותחזיר אותו')).toBe(
       'שירי תיקח ותחזיר אותך',
     );
+  });
+
+  it('carries sender name + gender into reply options', () => {
+    const opts = replyOptionsForSender('0521234567', PATIENT, {
+      name: 'שירי',
+      gender: 'female',
+    });
+    expect(opts.senderName).toBe('שירי');
+    expect(opts.senderGender).toBe('female');
+  });
+
+  it('builds a name + gendered-address instruction', () => {
+    const instruction = senderPersonaInstruction({
+      addressSecondPerson: false,
+      senderName: 'שירי',
+      senderGender: 'female',
+    });
+    expect(instruction).toContain('שירי');
+    expect(instruction).toContain('feminine');
+    expect(senderPersonaInstruction()).toBe('');
   });
 });

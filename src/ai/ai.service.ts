@@ -18,7 +18,9 @@ import {
   type PatientReplyOptions,
   patientAnswerInstruction,
   patientLabelForPrompt,
+  senderPersonaInstruction,
 } from '../common/utils/patient-address';
+import type { ConversationTurnDto } from '../conversation/conversation.service';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 
 @Injectable()
@@ -231,49 +233,58 @@ Rules:
     question: string,
     factsJson: string,
     replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
   ) {
     const openai = this.ensureClient();
     const addressHint = patientAnswerInstruction(replyOptions);
+    const persona = senderPersonaInstruction(replyOptions);
     const personas = await this.familyPersonaSuffix();
     const completion = await openai.chat.completions.create({
       model: this.model,
       messages: [
         {
           role: 'system',
-          content: `You are a friendly, ChatGPT-like Hebrew assistant for a family medical-appointments app.
-Answer in Hebrew only.
+          content: `You are a warm, natural, ChatGPT-like Hebrew assistant for a family medical-appointments app.
+Answer in Hebrew. Speak like a helpful person, not a form.
 
-You may ONLY use the facts JSON in FACTS. Do not invent appointments, locations, times, transport, or requirements that are not present in FACTS.
+Single patient:
+- This assistant manages exactly ONE patient: ${this.patientLabel}. Every appointment in FACTS belongs to that patient.
+
+Typo tolerance (a basic LLM should infer meaning from messy input — so must you):
+- The question is natural human text and may contain spelling mistakes, missing/extra letters, or phonetic spellings. Infer the intended meaning the way a fluent Hebrew speaker would — for the patient's name, treatment/test names (e.g. פט סיטי, קיטרודה, זומרה), locations (e.g. איכילוב, שיבא), and dates. Match against FACTS by closest intended meaning, not exact characters.
+- If a person name looks like a typo/variant of the patient's name (e.g. "אסא" vs "אבא"), assume it refers to the patient and answer normally — but acknowledge it briefly first, e.g. "מניח שהתכוונת לאבא — ..." so the user can correct you if wrong.
+- Apply the same light acknowledgment for other clear typos when it changes the match (e.g. "מניח שהתכוונת לפט סיטי — ..."), but don't over-explain trivial corrections.
+- Only ask a clarifying question when the input is genuinely ambiguous (a truly unfamiliar name with no close match). Never invent a mixed/incorrect answer.
+
+Grounding:
+- For anything about appointments, schedules, prep, transport, counts, requirements, or a treatment/test — answer ONLY from FACTS. Do not invent appointments, locations, times, transport, or requirements that are not in FACTS.
+- A question like "what to know before the Zomera infusion" must be answered from the stored notes/requirements for that appointment — NOT generic medical advice.
+- Only if the question is clearly unrelated to the calendar (jokes, weather, general trivia) AND FACTS has nothing relevant, you may answer briefly from general knowledge — without inventing appointments, and without medical diagnosis/treatment instructions (suggest consulting a clinician for medical specifics).
 
 Critical accuracy rule:
-- If you mention an appointment’s time/date or location, you must use the exact fields from FACTS ("whenHebrew", "dateTime", "location", "title") and not guess or rewrite them.
+- If you mention an appointment’s time/date or location, copy the exact fields from FACTS ("whenHebrew", "dateTime", "location", "title"). Do not guess or rewrite them.
 
-When listing appointments, use natural Hebrew in one consistent pattern, for example:
-- "<transportDisplay> לתור <title> — <whenHebrew>, <location>"
-If transportDisplay is empty, omit it and start with "תור <title> — ...".
+Language (very important):
+- Respond ONLY in Hebrew characters. Never include Spanish, English, or any other non-Hebrew words. Do not mix languages.
+- The only allowed non-Hebrew tokens are established medical/proper-noun abbreviations that have no Hebrew form (e.g. PET, CT, MRI, IV).
 
-Style:
-- Natural, flowing Hebrew (not robotic).
-- Prefer a direct answer first, then 0–3 short bullets only if it helps.
-- It is OK to compute derived answers from the facts (counts, yes/no, matching items).
-
-Timeframe defaulting (very important):
-- FACTS may include both upcomingAppointments and recentPastAppointments.
-- If the question does NOT explicitly ask about the past (e.g. "עד היום", "עד כה", ״עד עכשיו״, "היה", "כבר", "בעבר", "מה היה", "כמה היו"), assume the user means the future and answer using upcomingAppointments.
-- If you're not sure about the timeframe, ask the user to clarify.
+Timeframe defaulting:
+- FACTS may include upcomingAppointments and (when relevant) recentPastAppointments.
+- If the question does NOT explicitly ask about the past ("עד היום", "עד כה", "היה", "כבר", "בעבר", "מה היה", "כמה היו"), assume the future and use upcomingAppointments.
 - Only use recentPastAppointments when the question clearly asks about past/history.
 
 Counting rules:
-- If the user asks "כמה ... כבר היו" / "עד היום" / "עד כה" — count only past/completed items (dateTime < now). If FACTS.stats includes "*PastCount", use it.
-- If the user asks about "כמה עוד יהיו" / "כמה יש בעתיד" — use upcoming counts.
-- If the user asks a combined question, you may mention both (past + upcoming) explicitly.
+- "כמה ... כבר היו" / "עד היום" / "עד כה" → count only past items (dateTime < now); use FACTS.stats "*PastCount" if present.
+- "כמה עוד יהיו" / "כמה יש בעתיד" → use upcoming counts.
+- Combined question → you may state both past and upcoming.
 
-If the question says "כל התורים" / "האם לכל התורים..." but FACTS has a scope/limit (see FACTS.scope), answer explicitly based on the facts you have (e.g. "לפי 15 התורים הקרובים שמופיעים במערכת...").
+If the question says "כל התורים" but FACTS has a scope/limit (FACTS.scope), answer based on what you have (e.g. "לפי התורים הקרובים שבמערכת...").
+If the answer is missing from FACTS, say briefly what's missing and what the user can add.
 
-If the answer is missing from FACTS, say what is missing and what the user can add (briefly). If you don’t understand the question, ask a single clarifying question.
-
-${addressHint ? ` ${addressHint}` : ''}${personas}`,
+Style:
+- Natural, flowing Hebrew; direct answer first, then 0–3 short bullets only if helpful.${addressHint ? `\n${addressHint}` : ''}${persona}${personas}`,
         },
+        ...this.historyMessages(history),
         {
           role: 'user',
           content: `FACTS:\n${factsJson}\n\nשאלה:\n${question}`,
@@ -287,75 +298,14 @@ ${addressHint ? ` ${addressHint}` : ''}${personas}`,
     return text;
   }
 
-  async classifyQuestionMode(
-    question: string,
-    replyOptions?: PatientReplyOptions,
-  ): Promise<{ mode: 'grounded' | 'free'; reason?: string }> {
-    const openai = this.ensureClient();
-    const label = patientLabelForPrompt(this.patientLabel, replyOptions);
-    const personas = await this.familyPersonaSuffix();
-    const completion = await openai.chat.completions.create({
-      model: this.model,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `You are routing a Hebrew question for a family medical-appointments assistant (${label}).
-Return JSON only: { "mode": "grounded" | "free", "reason": "..." }.
-
-Choose "grounded" if the question is about stored appointment data: appointments, dates/times, locations, requirements/checklists, transport/driving, responsible person, what to bring, next/upcoming/past counts.
-
-Choose "free" if the question is general knowledge or chit-chat unrelated to the saved appointments (e.g. meaning of life, jokes, definitions, weather).
-
-Be conservative: if it plausibly refers to appointments or the calendar, choose "grounded".
-Hebrew only.${personas}`,
-        },
-        { role: 'user', content: question },
-      ],
-    });
-    const raw = completion.choices[0]?.message?.content;
-    if (!raw) {
-      return { mode: 'grounded' };
+  private historyMessages(
+    history?: ConversationTurnDto[],
+  ): { role: 'user' | 'assistant'; content: string }[] {
+    if (!history?.length) {
+      return [];
     }
-    try {
-      const parsed = JSON.parse(raw) as any;
-      if (parsed?.mode === 'free' || parsed?.mode === 'grounded') {
-        return { mode: parsed.mode, reason: typeof parsed.reason === 'string' ? parsed.reason : undefined };
-      }
-    } catch {
-      // ignore
-    }
-    return { mode: 'grounded' };
-  }
-
-  async answerFreeQuestion(
-    question: string,
-    replyOptions?: PatientReplyOptions,
-  ): Promise<string> {
-    const openai = this.ensureClient();
-    const addressHint = patientAnswerInstruction(replyOptions);
-    const personas = await this.familyPersonaSuffix();
-    const completion = await openai.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content: `You are a friendly, ChatGPT-like assistant. Answer in Hebrew only.
-Do NOT mention appointments, databases, or system data unless the user explicitly asks about them.
-
-Safety:
-- Do not provide medical diagnosis or definitive treatment instructions.
-- If the user asks a medical question, provide general information and recommend consulting a clinician.
-
-Style:
-- Natural, flowing Hebrew.
-- Prefer a direct answer first, then a short list only if helpful.
-${addressHint ? ` ${addressHint}` : ''}${personas}`,
-        },
-        { role: 'user', content: question },
-      ],
-    });
-    const text = completion.choices[0]?.message?.content?.trim();
-    return text || 'לא הצלחתי להבין. נסו לנסח שוב.';
+    return history
+      .filter((t) => t.text.trim())
+      .map((t) => ({ role: t.role, content: t.text }));
   }
 }

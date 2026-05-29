@@ -5,9 +5,16 @@ import { AiModule } from '../ai/ai.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { RequirementsModule } from '../requirements/requirements.module';
 import { QueryModule } from '../query/query.module';
+import { ConversationModule } from '../conversation/conversation.module';
 
 @Module({
-  imports: [AiModule, AppointmentsModule, RequirementsModule, QueryModule],
+  imports: [
+    AiModule,
+    AppointmentsModule,
+    RequirementsModule,
+    QueryModule,
+    ConversationModule,
+  ],
   controllers: [WhatsappController],
   providers: [WhatsappService],
   exports: [WhatsappService],

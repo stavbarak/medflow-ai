@@ -55,6 +55,13 @@ import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.me
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
 import { textMentionsTransport } from '../common/utils/transport-heuristic';
+import { personaNameFromLabel } from '../common/utils/family-persona';
+import { isAffirmation } from '../common/utils/affirmation';
+import {
+  ConversationService,
+  type ConversationTurnDto,
+  type PendingActionDto,
+} from '../conversation/conversation.service';
 import {
   type PatientReplyOptions,
   replyOptionsForSender,
@@ -73,6 +80,7 @@ export class WhatsappService {
     private readonly query: QueryService,
     private readonly familyMembers: FamilyMemberService,
     private readonly familyPersonas: FamilyPersonaService,
+    private readonly conversation: ConversationService,
   ) {}
 
   verifyWebhook(
@@ -139,8 +147,9 @@ export class WhatsappService {
       return;
     }
 
-    // Group-safe: only respond when the bot is called by name.
-    if (!containsWakeWord(text)) {
+    const hadWakeWord = containsWakeWord(text);
+    // In group chats the bot must be called by name; in 1:1 DMs every message is for it.
+    if (message.replyTo.type === 'group' && !hadWakeWord) {
       return;
     }
 
@@ -151,84 +160,134 @@ export class WhatsappService {
     }
 
     this.logger.debug(
-      `Wake message from ${message.senderWaId} (${message.replyTo.type})`,
+      `Message from ${message.senderWaId} (${message.replyTo.type}, wakeWord=${hadWakeWord})`,
     );
-    await this.replyWakeWord(message.replyTo, text, message.senderWaId);
+
+    const replyOpts = await this.patientReplyOptions(message.senderWaId);
+
+    // A pending destructive action (e.g. cancel) awaiting confirmation.
+    const pending = await this.conversation.consumePendingAction(
+      message.senderWaId,
+    );
+    if (pending && isAffirmation(text)) {
+      const reply = await this.confirmPendingAction(pending, replyOpts);
+      await this.safeSend(message.replyTo, reply);
+      await this.recordTurns(message.senderWaId, text, reply);
+      return;
+    }
+
+    const history = await this.conversation.getRecentTurns(
+      message.senderWaId,
+      { limit: 6 },
+    );
+    const reply = await this.composeReply(
+      text,
+      message.senderWaId,
+      replyOpts,
+      hadWakeWord,
+      history,
+    );
+    if (reply) {
+      await this.safeSend(message.replyTo, reply);
+      await this.recordTurns(message.senderWaId, text, reply);
+    }
   }
 
-  private patientReplyOptions(senderWaId: string): PatientReplyOptions {
+  private async patientReplyOptions(
+    senderWaId: string,
+  ): Promise<PatientReplyOptions> {
+    const member = await this.familyMembers
+      .findByPhone(senderWaId)
+      .catch(() => null);
+    const name =
+      personaNameFromLabel(member?.displayName) ?? member?.displayName ?? null;
     return replyOptionsForSender(
       senderWaId,
       resolvePatientPhone(this.config.get<string>('PATIENT_PHONE')),
+      { name, gender: member?.gender ?? null },
     );
   }
 
-  private async replyWakeWord(
-    replyTo: WhatsappSendTarget,
+  /** Short greeting prefix using the sender's name (gender-neutral). */
+  private greeting(replyOpts: PatientReplyOptions): string {
+    const name = replyOpts.senderName?.trim();
+    return name ? `${name}, ` : '';
+  }
+
+  private async recordTurns(
+    senderWaId: string,
+    userText: string,
+    reply: string,
+  ): Promise<void> {
+    await this.conversation.appendTurn(senderWaId, 'user', userText);
+    await this.conversation.appendTurn(senderWaId, 'assistant', reply);
+  }
+
+  private async confirmPendingAction(
+    pending: PendingActionDto,
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
+    const greeting = this.greeting(replyOpts);
+    try {
+      const removed = await this.appointments.remove(pending.appointmentId);
+      const when = formatAppointmentWhenHebrew(removed.dateTime, true);
+      return `${greeting}ביטלתי תור: ${removed.title} (${when}).`;
+    } catch {
+      return `${greeting}לא מצאתי את התור לביטול (ייתכן שכבר בוטל).`;
+    }
+  }
+
+  private async composeReply(
     text: string,
     senderWaId: string,
-  ) {
+    replyOpts: PatientReplyOptions,
+    hadWakeWord: boolean,
+    history: ConversationTurnDto[],
+  ): Promise<string | null> {
     const payload = stripWakeWord(text);
     const intent = classifyWakePayload(payload);
-    const replyOpts = this.patientReplyOptions(senderWaId);
 
     try {
       switch (intent) {
         case 'list':
-          await this.safeSend(
-            replyTo,
-            await this.query.formatFactsDumpHebrew(
-              await this.query.buildUpcomingFactsPayload(),
-              replyOpts,
-            ),
+          return this.query.formatFactsDumpHebrew(
+            await this.query.buildUpcomingFactsPayload(),
+            replyOpts,
           );
-          return;
         case 'question':
-          await this.safeSend(
-            replyTo,
-            await this.query.answerWakeWord(text, replyOpts),
-          );
-          return;
+          return this.query.answerWakeWord(text, replyOpts, history);
         case 'cancel':
-          await this.safeSend(
-            replyTo,
-            await this.handleWakeCancel(payload, replyOpts),
+          return this.handleWakeCancel(
+            payload,
+            replyOpts,
+            hadWakeWord,
+            senderWaId,
           );
-          return;
         case 'create':
-          await this.safeSend(
-            replyTo,
-            await this.handleWakeCreate(payload, replyOpts),
-          );
-          return;
+          return this.handleWakeCreate(payload, replyOpts);
         case 'update':
-          await this.safeSend(
-            replyTo,
-            await this.handleWakeUpdate(payload, replyOpts),
-          );
-          return;
+          return this.handleWakeUpdate(payload, replyOpts);
       }
     } catch (err) {
       this.logger.error(err instanceof Error ? err.message : err);
-      await this.safeSend(
-        replyTo,
-        'לא הצלחתי לעבד את ההודעה. נסו לנסח שוב.',
-      );
+      return 'לא הצלחתי לעבד את ההודעה. אפשר לנסח שוב?';
     }
+    return null;
   }
 
   private async handleWakeCreate(
     payload: string,
     replyOpts: PatientReplyOptions,
   ): Promise<string> {
+    const greeting = this.greeting(replyOpts);
     const extracted = await this.ai.extractAppointmentFromText(
       payload,
       replyOpts,
     );
     if (!extracted.dateTime) {
       return replyOpts.addressSecondPerson
-        ? 'לא הצלחתי לזהות תאריך. נסו: חנטריש, יש לך תור ב-27.5 בבית חולים X'
-        : 'לא הצלחתי לזהות תאריך. נסו: חנטריש, לאבא יש תור ב-27.5 בבית חולים X';
+        ? `${greeting}לא הצלחתי לזהות תאריך. אפשר לנסות: חנטריש, יש לך תור ב-27.5 בבית חולים X`
+        : `${greeting}לא הצלחתי לזהות תאריך. אפשר לנסות: חנטריש, לאבא יש תור ב-27.5 בבית חולים X`;
     }
 
     const inferred = inferWakeAppointmentFields(payload);
@@ -271,13 +330,14 @@ export class WhatsappService {
     const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
     const transportNote = await this.formatTransportNote(created, replyOpts);
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
-    return `${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
+    return `${greeting}${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
   }
 
   private async handleWakeUpdate(
     payload: string,
     replyOpts: PatientReplyOptions,
   ): Promise<string> {
+    const greeting = this.greeting(replyOpts);
     if (looksLikeNewAppointment(payload)) {
       return this.handleWakeCreate(payload, replyOpts);
     }
@@ -294,7 +354,7 @@ export class WhatsappService {
       if (looksLikeNewAppointment(payload) || parseAppointmentWhenFromText(payload)) {
         return this.handleWakeCreate(payload, replyOpts);
       }
-      return 'לא מצאתי תור לעדכון. נסו לציין תאריך (למשל 25.5) או שם מרפאה.';
+      return `${greeting}לא מצאתי תור לעדכון. אפשר לציין תאריך (למשל 25.5) או שם מרפאה.`;
     }
     const target = lookup.appointment;
 
@@ -385,7 +445,7 @@ export class WhatsappService {
       !patch.title &&
       !patch.location
     ) {
-      return 'לא זיהיתי מה להוסיף. נסו: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ששירי תיקח.';
+      return `${greeting}לא זיהיתי מה להוסיף. אפשר לנסות: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ששירי תיקח.`;
     }
 
     const updated = await this.appointments.update(target.id, patch);
@@ -430,7 +490,7 @@ export class WhatsappService {
         personas: await this.familyPersonas.getPersonas(),
       },
     );
-    return `${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
+    return `${greeting}${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
   }
 
   private async formatTransportNote(
@@ -529,7 +589,10 @@ export class WhatsappService {
   private async handleWakeCancel(
     payload: string,
     replyOpts: PatientReplyOptions,
+    hadWakeWord: boolean,
+    senderWaId: string,
   ): Promise<string> {
+    const greeting = this.greeting(replyOpts);
     const lookup = await this.resolveAppointmentForCancel(payload);
     if (lookup.status === 'ambiguous') {
       return formatAmbiguousCancelPromptHebrew(lookup.appointments);
@@ -549,22 +612,28 @@ export class WhatsappService {
         }
         if (onDay.length === 0) {
           const when = formatAppointmentWhenHebrew(parsed.dateTime, false);
-          return replyOpts.addressSecondPerson
-            ? `לא מצאתי לך תור בתאריך ${when}.`
-            : `לא מצאתי תור בתאריך ${when}.`;
+          return `${greeting}לא מצאתי תור בתאריך ${when}.`;
         }
       }
-      return replyOpts.addressSecondPerson
-        ? 'לא מצאתי תור לביטול. נסו לציין תאריך, שעה, או סוג ביקור (למשל אונקולוג ב-5.8 בשעה 12:00).'
-        : 'לא מצאתי תור לביטול. נסו לציין תאריך, שעה, או סוג ביקור (למשל אונקולוג ב-5.8 בשעה 12:00).';
+      return `${greeting}לא מצאתי תור לביטול. אפשר לציין תאריך, שעה, או סוג ביקור (למשל אונקולוג ב-5.8 בשעה 12:00).`;
     }
 
     const row = lookup.appointment;
     const appointmentDate = new Date(row.dateTime);
-    await this.appointments.remove(row.id);
     const when = formatAppointmentWhenHebrew(appointmentDate, true);
-    const prefix = replyOpts.addressSecondPerson ? 'ביטלתי את התור שלך' : 'ביטלתי תור';
-    return `${prefix}: ${row.title} (${when}).`;
+
+    // Without an explicit wake word, confirm before deleting (DM safety guard).
+    if (!hadWakeWord) {
+      await this.conversation.setPendingAction(senderWaId, {
+        kind: 'cancel',
+        appointmentId: row.id,
+        summary: `${row.title} (${when})`,
+      });
+      return `${greeting}האם לבטל את התור: ${row.title} — ${when}? (אפשר להשיב "כן" לאישור)`;
+    }
+
+    await this.appointments.remove(row.id);
+    return `${greeting}ביטלתי תור: ${row.title} (${when}).`;
   }
 
   private async safeSend(target: WhatsappSendTarget, message: string) {

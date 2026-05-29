@@ -10,6 +10,15 @@ import {
   transportUserDisplay,
   transportUserSelect,
 } from '../common/utils/user-profile';
+import {
+  extractTreatmentKeyword,
+  needsExpandedFacts,
+} from '../common/utils/qna-facts-heuristic';
+import {
+  hasDisallowedLatin,
+  stripDisallowedLatin,
+} from '../common/utils/hebrew-only';
+import type { ConversationTurnDto } from '../conversation/conversation.service';
 
 @Injectable()
 export class QueryService {
@@ -87,32 +96,31 @@ export class QueryService {
     };
   }
 
-  private isPastOrSoFarQuestion(question: string): boolean {
-    return /(עד\s*היום|עד\s*כה|עד\s*עכשיו|עד\s*כאן|עד\s*עכשיו|היה|כבר|בעבר|פעם|מה\s+היה|כמה\s+היו|עד\s+עכשיו)/iu.test(
-      question,
-    );
+  private keywordWhere(keyword: string, dateTime: { lt?: Date; gte?: Date }) {
+    return {
+      AND: [
+        {
+          OR: [
+            { title: { contains: keyword, mode: 'insensitive' as const } },
+            { notes: { contains: keyword, mode: 'insensitive' as const } },
+          ],
+        },
+        { dateTime },
+      ],
+    };
   }
 
-  private extractIvKeyword(question: string): string | null {
-    // Examples: "עירוי קיטרודה", "עירויי קיטרודה", "עירוי קיטרודה כבר היו..."
-    const m = /עירוי(?:י)?\s*([א-ת][א-ת"'\-]{2,})/iu.exec(question);
-    if (!m?.[1]) {
-      return null;
-    }
-    const word = m[1].trim();
-    if (word.length < 3) {
-      return null;
-    }
-    return word;
-  }
-
-  /** Expanded facts for Q&A: always upcoming; optionally past+stats for "so far" questions. */
+  /**
+   * Expanded facts for Q&A: always upcoming; past + focused keyword stats are added
+   * when the question implies history, counting, prep, or a specific treatment/test.
+   */
   async buildQnAFactsPayload(question: string) {
     const now = new Date();
     const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-    const includePast = this.isPastOrSoFarQuestion(question);
-    const ivKeyword = this.extractIvKeyword(question);
+    const includePast = needsExpandedFacts(question);
+    const keyword = extractTreatmentKeyword(question);
+
     const upcomingPromise = this.loadAppointmentsForFacts({
       from: now,
       order: 'asc',
@@ -126,63 +134,21 @@ export class QueryService {
           take: 200,
         })
       : Promise.resolve([]);
-    const ivWhere = {
-      OR: [{ title: { contains: 'עירוי' } }, { notes: { contains: 'עירוי' } }],
-    };
-    const ivTreatmentsPastCountPromise = includePast
-      ? this.prisma.appointment.count({
-          where: {
-            AND: [ivWhere, { dateTime: { lt: now } }],
-          },
-        })
-      : Promise.resolve(0);
-    const ivTreatmentsUpcomingCountPromise = includePast
-      ? this.prisma.appointment.count({
-          where: {
-            AND: [ivWhere, { dateTime: { gte: now } }],
-          },
-        })
-      : Promise.resolve(0);
-
-    const ivKeywordStatsPromise = includePast && ivKeyword
+    const keywordStatsPromise = keyword
       ? Promise.all([
           this.prisma.appointment.count({
-            where: {
-              AND: [
-                ivWhere,
-                { dateTime: { lt: now } },
-                {
-                  OR: [
-                    { title: { contains: ivKeyword } },
-                    { notes: { contains: ivKeyword } },
-                  ],
-                },
-              ],
-            },
+            where: this.keywordWhere(keyword, { lt: now }),
           }),
           this.prisma.appointment.count({
-            where: {
-              AND: [
-                ivWhere,
-                { dateTime: { gte: now } },
-                {
-                  OR: [
-                    { title: { contains: ivKeyword } },
-                    { notes: { contains: ivKeyword } },
-                  ],
-                },
-              ],
-            },
+            where: this.keywordWhere(keyword, { gte: now }),
           }),
         ])
       : Promise.resolve(null);
 
-    const [upcoming, recentPast, ivTreatmentsPastCount, ivTreatmentsUpcomingCount, ivKeywordStats] = await Promise.all([
+    const [upcoming, recentPast, keywordStats] = await Promise.all([
       upcomingPromise,
       recentPastPromise,
-      ivTreatmentsPastCountPromise,
-      ivTreatmentsUpcomingCountPromise,
-      ivKeywordStatsPromise,
+      keywordStatsPromise,
     ]);
 
     return {
@@ -196,17 +162,12 @@ export class QueryService {
         recentPastCount: recentPast.length,
         includePast,
       },
-      stats: includePast
+      stats: keywordStats
         ? {
-            ivTreatmentsPastCount,
-            ivTreatmentsUpcomingCount,
-            ivTreatmentsTotalCount: ivTreatmentsPastCount + ivTreatmentsUpcomingCount,
-            ivTreatmentKeyword: ivKeyword,
-            ivKeywordPastCount: ivKeywordStats ? ivKeywordStats[0] : undefined,
-            ivKeywordUpcomingCount: ivKeywordStats ? ivKeywordStats[1] : undefined,
-            ivKeywordTotalCount: ivKeywordStats
-              ? ivKeywordStats[0] + ivKeywordStats[1]
-              : undefined,
+            keyword,
+            keywordPastCount: keywordStats[0],
+            keywordUpcomingCount: keywordStats[1],
+            keywordTotalCount: keywordStats[0] + keywordStats[1],
           }
         : undefined,
       upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
@@ -216,14 +177,40 @@ export class QueryService {
     };
   }
 
-  async answerQuestion(question: string) {
-    const mode = await this.ai.classifyQuestionMode(question);
-    if (mode.mode === 'free') {
-      return this.ai.answerFreeQuestion(question);
+  /**
+   * Grounded answer with a Hebrew-only guard: if the model leaks a non-Hebrew word,
+   * retry once, then strip any stray Latin as a last resort.
+   */
+  private async answerGroundedWithGuard(
+    question: string,
+    factsJson: string,
+    replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
+  ): Promise<string> {
+    let answer = await this.ai.answerQuestionFromFacts(
+      question,
+      factsJson,
+      replyOptions,
+      history,
+    );
+    if (hasDisallowedLatin(answer)) {
+      answer = await this.ai.answerQuestionFromFacts(
+        question,
+        factsJson,
+        replyOptions,
+        history,
+      );
+      if (hasDisallowedLatin(answer)) {
+        answer = stripDisallowedLatin(answer);
+      }
     }
+    return answer;
+  }
+
+  async answerQuestion(question: string) {
     const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);
-    return this.ai.answerQuestionFromFacts(question, factsJson);
+    return this.answerGroundedWithGuard(question, factsJson);
   }
 
   /** Hebrew summary of upcoming appointments + requirements (no LLM). */
@@ -278,18 +265,20 @@ export class QueryService {
   async answerWakeWord(
     userText: string,
     replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
   ): Promise<string> {
     const question = stripWakeWord(userText);
     if (!question) {
       const facts = await this.buildUpcomingFactsPayload();
       return this.formatFactsDumpHebrew(facts, replyOptions);
     }
-    const mode = await this.ai.classifyQuestionMode(question, replyOptions);
-    if (mode.mode === 'free') {
-      return this.ai.answerFreeQuestion(question, replyOptions);
-    }
     const facts = await this.buildQnAFactsPayload(question);
     const factsJson = JSON.stringify(facts, null, 0);
-    return this.ai.answerQuestionFromFacts(question, factsJson, replyOptions);
+    return this.answerGroundedWithGuard(
+      question,
+      factsJson,
+      replyOptions,
+      history,
+    );
   }
 }
