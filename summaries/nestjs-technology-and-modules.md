@@ -126,7 +126,7 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **Role:** **Grounded question answering** — read DB first, then ask the model to phrase a Hebrew answer from a JSON facts blob.
 
-**How:** **`QueryController`** → `POST /api/query/answer`. **`QueryService.buildFactsPayload`** loads the next 15 upcoming appointments (with requirements and responsible user). **`formatFactsDumpHebrew`** formats the same data **without** an LLM (WhatsApp `חנטריש` alone). Imports **`AiModule`** only for `answerQuestionFromFacts`. Details: [Stage 3 walkthrough 2](stage-3-ai-extraction-and-queries.md#walkthrough-2--grounded-qa).
+**How:** **`QueryController`** → `POST /api/query/answer`. **`QueryService.buildQnAFactsPayload`** loads upcoming appointments and **expands** to past + keyword counts when the question needs it (history/counting/prep/treatment), then `answerGroundedWithGuard` calls the model and applies a Hebrew-only guard. **`buildUpcomingFactsPayload`** + **`formatFactsDumpHebrew`** format the list **without** an LLM (WhatsApp `חנטריש` alone). Q&A is a **single grounded path** (no intent classifier); the WhatsApp layer also threads short per-sender conversation history via `ConversationService`. Imports **`AiModule`** for `answerQuestionFromFacts`. Details: [Stage 3 walkthrough 2](stage-3-ai-extraction-and-queries.md#walkthrough-2--grounded-qa-conversational).
 
 ---
 

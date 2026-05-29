@@ -178,7 +178,7 @@ export class WhatsappService {
 
     const history = await this.conversation.getRecentTurns(
       message.senderWaId,
-      { limit: 6 },
+      { limit: 10 },
     );
     const reply = await this.composeReply(
       text,

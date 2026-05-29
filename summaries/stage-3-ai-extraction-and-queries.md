@@ -1,8 +1,10 @@
 # Stage 3 — AI extraction and grounded questions
 
-By Stage 3, the database already “knows” things. **AI** is not there to invent medical facts—it’s there to **turn messy Hebrew messages into structured rows** and to **phrase answers** from what’s already stored, in natural short Hebrew.
+By Stage 3, the database already “knows” things. **AI** is not there to invent medical facts—it’s there to **turn messy Hebrew messages into structured rows** and to **hold a natural Hebrew conversation** about what’s already stored.
 
 This note walks you through **where the code lives**, **how data flows**, and **why we added extra guardrails** (especially around notes).
+
+> **Update (current behavior):** Q&A is now a **single grounded path** — there is no separate “is this a DB question or general chat?” classifier. Every question loads DB facts and goes through one conversational LLM call. The model gets **short conversation history** (so follow-ups like “ולאונקולוג?” work), the facts payload **expands** to include past appointments + counts when the question needs it, replies are **personalized** (sender name + correct gendered Hebrew), and a **Hebrew-only guard** strips any stray foreign words. These additions are described inline below.
 
 ## The backend story: AI as a helper, not the source of truth
 
@@ -46,21 +48,23 @@ flowchart LR
     GROUND --> DB[(Prisma / Postgres)]
   end
 
-  subgraph qa ["Mode B — Grounded Q&A (prose answer)"]
-    Q[User question] --> FACTS[QueryService.buildFactsPayload]
+  subgraph qa ["Mode B — Grounded Q&A (conversational answer)"]
+    Q[User question] --> FACTS["QueryService.buildQnAFactsPayload (expands when needed)"]
     FACTS --> DB
     DB --> JSON2[Facts JSON blob]
+    HIST[Recent conversation turns] --> AI2
     JSON2 --> AI2[AiService.answerQuestionFromFacts]
-    AI2 --> HE[Short Hebrew reply]
+    AI2 --> GUARD[Hebrew-only guard: retry then strip]
+    GUARD --> HE[Natural Hebrew reply]
   end
 ```
 
 | Mode | Input | Output | Who calls it |
 |------|--------|--------|--------------|
 | **Extraction** | “לאבא יש תור ב-27.5 באיכילוב” | `{ title, dateTime, location, notes, requirements[] }` | WhatsApp create/update, `POST /api/ai/extract` |
-| **Grounded Q&A** | “מתי התור הבא?” | Plain Hebrew string | SPA, WhatsApp questions, `POST /api/query/answer` |
+| **Grounded Q&A** | “מתי התור הבא?” / “ולאונקולוג?” | Natural Hebrew string | SPA, WhatsApp questions, `POST /api/query/answer` |
 
-**Rule of thumb:** extraction **writes** the DB; Q&A **reads** the DB first, then asks the model to **phrase** an answer from a JSON snapshot.
+**Rule of thumb:** extraction **writes** the DB; Q&A **reads** the DB first (plus recent chat history), then asks the model to **converse** about a JSON snapshot — grounded strictly in those facts.
 
 ---
 
@@ -80,14 +84,20 @@ src/
 ├── query/
 │   ├── query.module.ts           # imports AiModule
 │   ├── query.controller.ts       # POST /api/query/answer (JWT)
-│   └── query.service.ts          # buildFactsPayload + formatFactsDumpHebrew
+│   └── query.service.ts          # buildUpcomingFactsPayload + buildQnAFactsPayload + answerGroundedWithGuard + formatFactsDumpHebrew
+├── conversation/
+│   ├── conversation.module.ts    # exports ConversationService
+│   └── conversation.service.ts   # per-sender chat memory + pending actions (Postgres, pruned)
 └── common/utils/
     ├── notes-grounding.ts        # post-LLM anti-hallucination for notes
+    ├── qna-facts-heuristic.ts    # needsExpandedFacts + treatment-keyword extraction
+    ├── hebrew-only.ts            # detect/strip stray non-Hebrew words
+    ├── patient-address.ts        # sender name/gender → reply options + prompt hints
     ├── appointment-datetime.ts   # Israel/Jerusalem date parsing
     └── wake-appointment-fields.ts
 ```
 
-`QueryModule` **imports** `AiModule` but owns the **database read** (`buildFactsPayload`). `AiService` never touches Prisma directly—it only sees strings (user text, facts JSON).
+`QueryModule` **imports** `AiModule` but owns the **database read** (`buildQnAFactsPayload`). `AiService` never touches Prisma directly—it only sees strings (user text, facts JSON, and recent history turns). The **WhatsApp layer** owns conversation memory (`ConversationService`) and passes the recent turns into the Q&A call.
 
 ---
 
@@ -181,81 +191,113 @@ Use this route when debugging prompts without sending WhatsApp messages.
 
 ---
 
-## Walkthrough 2 — Grounded Q&A
+## Walkthrough 2 — Grounded Q&A (conversational)
 
 ### Step-by-step
 
 ```mermaid
 sequenceDiagram
   participant U as User
+  participant W as WhatsappService
+  participant CV as ConversationService
   participant Q as QueryService
   participant DB as Prisma
   participant AI as AiService
 
-  U->>Q: answerQuestion("מתי התור הבא?")
-  Q->>DB: findMany upcoming (take 15, include requirements)
-  DB-->>Q: appointments[]
-  Q->>Q: JSON.stringify(facts)
-  Q->>AI: answerQuestionFromFacts(question, factsJson)
-  AI->>AI: OpenAI chat (system: use ONLY facts)
+  U->>W: "ולאונקולוג?"
+  W->>CV: getRecentTurns(sender)  %% prior turns for context
+  CV-->>W: history[]
+  W->>Q: answerWakeWord(text, replyOpts, history)
+  Q->>Q: buildQnAFactsPayload(question)  %% expands if needed
+  Q->>DB: upcoming (+ past + keyword counts when relevant)
+  DB-->>Q: facts
+  Q->>AI: answerQuestionFromFacts(question, factsJson, replyOpts, history)
   AI-->>Q: Hebrew answer
-  Q-->>U: reply
+  Q->>Q: Hebrew-only guard (retry once, then strip)
+  Q-->>W: reply
+  W->>CV: appendTurn(user) + appendTurn(assistant)
+  W-->>U: reply
 ```
 
-Facts payload shape (what the model is allowed to “see”):
+### Two facts payloads
 
-```13:48:src/query/query.service.ts
-  async buildFactsPayload() {
+There are now **two** read shapes, both grounded:
+
+- **`buildUpcomingFactsPayload`** — next 15 upcoming appointments. Used for the bare-`חנטריש` list dump (`formatFactsDumpHebrew`, no LLM) and as the lightweight base.
+- **`buildQnAFactsPayload(question)`** — always upcoming (30), and **expands** to include the last year of past appointments + focused **keyword counts** when the question implies history, counting, prep, or a treatment/test. The decision lives in `needsExpandedFacts` / `extractTreatmentKeyword` (`src/common/utils/qna-facts-heuristic.ts`).
+
+```117:178:src/query/query.service.ts
+  async buildQnAFactsPayload(question: string) {
     const now = new Date();
-    const upcoming = await this.prisma.appointment.findMany({
-      where: { dateTime: { gte: now } },
-      orderBy: { dateTime: 'asc' },
-      take: 15,
-      include: {
-        requirements: true,
-        responsibleUser: { select: { name: true, phoneNumber: true } },
-      },
-    });
+    const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+    const includePast = needsExpandedFacts(question);
+    const keyword = extractTreatmentKeyword(question);
+    // ...load upcoming (30); past (200) only when includePast; keyword counts only when keyword...
     return {
       generatedAt: now.toISOString(),
-      upcomingAppointments: upcoming.map((a) => ({
-        id: a.id,
-        title: a.title,
-        dateTime: a.dateTime.toISOString(),
-        location: a.location,
-        notes: a.notes,
-        responsible: a.responsibleUser,
-        requirements: a.requirements.map((r) => ({
-          description: r.description,
-          isDone: r.isDone,
-        })),
-      })),
+      scope: { kind: 'qna', /* ... */ includePast },
+      stats: keywordStats
+        ? { keyword, keywordPastCount, keywordUpcomingCount, keywordTotalCount }
+        : undefined,
+      upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
+      recentPastAppointments: includePast ? recentPast.map((a) => this.toFactRow(a)) : [],
     };
   }
+```
 
-  async answerQuestion(question: string) {
-    const facts = await this.buildFactsPayload();
-    const factsJson = JSON.stringify(facts, null, 0);
-    return this.ai.answerQuestionFromFacts(question, factsJson);
+This is what fixed “כמה פט סיטי יש” and “מה צריך לדעת לפני עירוי זומרה?”: those questions now pull past rows + counts instead of only the upcoming window.
+
+### The Hebrew-only guard
+
+After the model replies, `answerGroundedWithGuard` checks for stray Latin words (allowlisting `PET`/`CT`/`MRI`/`IV`); if found it retries once, then strips as a last resort — so leaks like “puedo” never ship.
+
+```184:214:src/query/query.service.ts
+  private async answerGroundedWithGuard(
+    question: string,
+    factsJson: string,
+    replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
+  ): Promise<string> {
+    let answer = await this.ai.answerQuestionFromFacts(question, factsJson, replyOptions, history);
+    if (hasDisallowedLatin(answer)) {
+      answer = await this.ai.answerQuestionFromFacts(question, factsJson, replyOptions, history);
+      if (hasDisallowedLatin(answer)) {
+        answer = stripDisallowedLatin(answer);
+      }
+    }
+    return answer;
   }
 ```
 
 **Important:** `formatFactsDumpHebrew` lists appointments **without** calling the LLM—used when someone sends only `חנטריש` on WhatsApp (see Stage 4).
 
-System prompt for Q&A (note the “ONLY facts” constraint):
+### The Q&A system prompt (conversational, grounded)
 
-```199:218:src/ai/ai.service.ts
-  async answerQuestionFromFacts(question: string, factsJson: string) {
+The prompt is deliberately **short and conversational** rather than a long rule list — that was what made earlier replies feel robotic (restating every appointment, adding filler sign-offs). It keeps only the hard guardrails: ground in FACTS, Hebrew-only, single patient, typo tolerance, past-only-when-asked. It also receives `history` (prior turns) and personalization hints (name + gender):
+
+```232:299:src/ai/ai.service.ts
+  async answerQuestionFromFacts(
+    question: string,
+    factsJson: string,
+    replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
+  ) {
   // ...
         {
           role: 'system',
-          content: `You answer questions in Hebrew only. Use ONLY the facts JSON in FACTS ...`,
+          content: `You are chatting in Hebrew on WhatsApp ... treat each new message as a direct continuation ...
+- rely ONLY on FACTS ... never invent transport/times ...
+- reply only in Hebrew (PET, CT, MRI, IV allowed) ...`,
         },
-        {
-          role: 'user',
-          content: `FACTS:\n${factsJson}\n\nשאלה:\n${question}`,
-        },
+        ...this.historyMessages(history),
+        { role: 'user', content: `FACTS:\n${factsJson}\n\nשאלה:\n${question}` },
 ```
+
+### Conversation memory & personalization (why follow-ups work)
+
+- **Memory:** `ConversationService` stores a few recent turns per sender in Postgres (`ConversationTurn`), pruned aggressively (TTL ~60 min, keep ~20, plus a daily `@Cron` sweep). The WhatsApp layer loads them before answering and appends user+assistant after. This is what lets “ולאונקולוג?” continue “מי לוקח אותו?”.
+- **Personalization:** `patient-address.ts` carries the sender’s `{ name, gender }` into the prompt, so replies address the person by name and use correct gendered Hebrew. We chose a lightweight Postgres store over LangChain to avoid a heavy, churny dependency that fights the hand-tuned prompts.
 
 ---
 
@@ -356,7 +398,12 @@ No `AiInteraction` audit table yet—add one if production debugging becomes pai
 | File | What it proves |
 |------|----------------|
 | `src/ai/ai-validation.spec.ts` | DTO rejects bad extraction shapes |
-| `src/query/query.service.spec.ts` | Facts builder + wiring (mocked `AiService`) |
+| `src/query/query.service.spec.ts` | Always-grounded Q&A, expanded facts + keyword stats, Hebrew-only retry/strip |
+| `src/common/utils/qna-facts-heuristic.spec.ts` | `needsExpandedFacts` + treatment-keyword extraction |
+| `src/common/utils/hebrew-only.spec.ts` | Flags/strips non-Hebrew, allows PET/CT/MRI/IV |
+| `src/conversation/conversation.service.spec.ts` | Recent-turn memory, prune-on-write, pending-action consume/expiry |
+| `src/whatsapp/whatsapp.service.spec.ts` | Chat-type gating, cancel confirmation, turn recording |
+| `src/common/utils/patient-address.spec.ts` | Sender name/gender → reply options + prompt hint |
 | `src/common/utils/notes-grounding.spec.ts` | Transport hallucinations dropped |
 
 **No live OpenAI calls in unit tests**—mock the client or inject a fake `AiService`.
@@ -368,6 +415,10 @@ No `AiInteraction` audit table yet—add one if production debugging becomes pai
 | Choice | Instead of… | Because |
 |--------|-------------|---------|
 | Two-step Q&A (DB → then LLM phrasing) | Agent that queries SQL | Simpler, cheaper, fewer failure modes |
+| Single grounded Q&A path | A `grounded` vs `free` intent classifier | The classifier mis-routed data questions (e.g. “כמה פט סיטי”) to generic answers; one grounded path is simpler and more reliable |
+| Short, conversational prompt + history | Long prescriptive rule list | Rule-heavy prompts made replies robotic (restating appointments, filler sign-offs); a lean prompt + recent turns reads like a real chat |
+| Conversation memory in Postgres | LangChain / in-memory | Lightweight, survives redeploys, keeps senders isolated, doesn’t fight the hand-tuned prompts |
+| Hebrew-only post-process guard | Prompt-only | Catches rare foreign-word leaks the prompt misses |
 | JSON + DTO validation | Trust model output | Safe Prisma writes |
 | Server-side date parsing | Model returns ISO datetime | Hebrew dates are ambiguous; regex + Jerusalem TZ is predictable |
 | Separate create/update/reconcile/merge prompts | One mega-prompt | Each step has a narrow job; easier to tune |
