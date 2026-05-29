@@ -38,6 +38,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<User | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [nextAppt, setNextAppt] = useState<Appointment | null>(null);
   const [list, setList] = useState<Appointment[]>([]);
   const [question, setQuestion] = useState('מתי התור הבא?');
@@ -138,6 +141,34 @@ export default function App() {
     setNextAppt(null);
     setList([]);
     setAnswer(null);
+  }
+
+  function startEditName() {
+    setNameDraft(me && me.name !== me.phoneNumber ? me.name : '');
+    setEditingName(true);
+    setError(null);
+  }
+
+  async function saveName() {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      setError('יש להזין שם');
+      return;
+    }
+    setSavingName(true);
+    setError(null);
+    try {
+      const updated = await api<User>('/api/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ name: trimmed }),
+      });
+      setMe(updated);
+      setEditingName(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'עדכון השם נכשל');
+    } finally {
+      setSavingName(false);
+    }
   }
 
   async function ask() {
@@ -319,10 +350,56 @@ export default function App() {
       <header className="topbar">
         <div>
           <h1>MedFlow AI</h1>
-          <p className="muted small">
-            שלום{me ? `, ${me.name}` : ''}
-            {me?.role ? ` · ${me.role}` : ''}
-          </p>
+          {editingName ? (
+            <div className="name-edit">
+              <input
+                type="text"
+                value={nameDraft}
+                placeholder="השם שלך"
+                autoFocus
+                disabled={savingName}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void saveName();
+                  if (e.key === 'Escape') setEditingName(false);
+                }}
+              />
+              <button
+                type="button"
+                className="primary small"
+                disabled={savingName}
+                onClick={() => void saveName()}
+              >
+                שמירה
+              </button>
+              <button
+                type="button"
+                className="ghost small"
+                disabled={savingName}
+                onClick={() => setEditingName(false)}
+              >
+                ביטול
+              </button>
+            </div>
+          ) : (
+            <p className="muted small">
+              {me && me.name !== me.phoneNumber ? (
+                <>
+                  שלום, {me.name}
+                  {me.role ? ` · ${me.role}` : ''}{' '}
+                  <button type="button" className="link" onClick={startEditName}>
+                    עריכת שם
+                  </button>
+                </>
+              ) : me ? (
+                <button type="button" className="link" onClick={startEditName}>
+                  הוספת שם
+                </button>
+              ) : (
+                ''
+              )}
+            </p>
+          )}
         </div>
         <button type="button" className="ghost" onClick={logout}>
           יציאה

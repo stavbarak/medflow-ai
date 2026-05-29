@@ -20,6 +20,7 @@ describe('WhatsappService dispatch', () => {
   };
   const familyMembers = {
     isAllowed: jest.fn().mockResolvedValue(true),
+    healDisplayNameFromEnv: jest.fn().mockResolvedValue(undefined),
     findByPhone: jest
       .fn()
       .mockResolvedValue({ displayName: 'שירי', gender: 'female' }),
