@@ -12,18 +12,18 @@ describe('parseAllowedPhoneNumbersEnv', () => {
       },
       {
         phoneNumber: '972529876543',
-        displayName: '972529876543',
+        displayName: null,
         gender: 'male',
       },
     ]);
   });
 
-  it('defaults gender for phone-only entries', () => {
+  it('leaves name/gender null for phone-only entries (table owns them)', () => {
     expect(parseAllowedPhoneNumbersEnv('972521234567')).toEqual([
       {
         phoneNumber: '972521234567',
-        displayName: '972521234567',
-        gender: 'male',
+        displayName: null,
+        gender: null,
       },
     ]);
   });

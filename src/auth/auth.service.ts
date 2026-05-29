@@ -102,7 +102,6 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedException('פרטי התחברות שגויים');
     }
-    await this.familyMembers.healDisplayNameFromEnv(phoneNumber);
     const withMember = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: userWithMemberSelect,

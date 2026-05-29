@@ -151,7 +151,7 @@ Then use **הרשמה** in the app with a new password.
 
 Set on the **API** service (and in local `.env`):
 
-- `ALLOWED_PHONE_NUMBERS` — `phone:שם:male|female` per person (see [`.env.example`](.env.example))
+- `ALLOWED_PHONE_NUMBERS` — comma-separated allowed phones (access list). Name/gender live in the `FamilyMember` table (set at registration); `:שם:male|female` is an optional bootstrap (see [`.env.example`](.env.example))
 - `PATIENT_PHONE` — dad’s number for WhatsApp second-person (אתה/לך)
 
 After deploy, from your Mac (with [Railway CLI](https://docs.railway.com/cli)):

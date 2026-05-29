@@ -3,7 +3,12 @@ import { parseAllowedPhoneNumbersEnv } from '../src/common/utils/family-roster-e
 
 const prisma = new PrismaClient();
 
-/** Upsert family roster from ALLOWED_PHONE_NUMBERS (phone:name:gender per person). */
+/**
+ * Ensure every allowlisted phone has a FamilyMember row. The env is an access
+ * list; name + gender are owned by the table. We only set name/gender from env
+ * when explicitly provided (`phone:name:gender`), and never overwrite an
+ * existing row's name/gender with a placeholder.
+ */
 async function seedFamilyFromEnv() {
   const raw = process.env.ALLOWED_PHONE_NUMBERS?.trim();
   if (!raw) {
@@ -11,18 +16,22 @@ async function seedFamilyFromEnv() {
   }
   let count = 0;
   for (const entry of parseAllowedPhoneNumbersEnv(raw)) {
+    const update: { displayName?: string; gender?: 'male' | 'female' } = {};
+    if (entry.displayName) {
+      update.displayName = entry.displayName;
+    }
+    if (entry.gender) {
+      update.gender = entry.gender;
+    }
     await prisma.familyMember.upsert({
       where: { phoneNumber: entry.phoneNumber },
       create: {
         id: `fm-${entry.phoneNumber}`,
         phoneNumber: entry.phoneNumber,
-        displayName: entry.displayName,
-        gender: entry.gender,
+        displayName: entry.displayName ?? entry.phoneNumber,
+        gender: entry.gender ?? 'male',
       },
-      update: {
-        displayName: entry.displayName,
-        gender: entry.gender,
-      },
+      update,
     });
     count += 1;
   }

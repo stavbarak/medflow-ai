@@ -37,13 +37,14 @@ We optimized for **repeatable first run** in a learning repo, not for minimal di
 
 After migrate + seed, open **`FamilyMember`** (not the old `AllowedPhone` table). Each row is one person: phone, Hebrew `displayName`, `gender`. Web logins live in **`User`** and point at `familyMemberId`.
 
-Set roster data in `.env`:
+Set the allowed phones in `.env` (an access list — names/gender live in the `FamilyMember` table, set at registration):
 
 ```env
-ALLOWED_PHONE_NUMBERS=972521234567:שם:female,972529876543:שם2:male
+ALLOWED_PHONE_NUMBERS=972521234567,972529876543
+# optional bootstrap: ALLOWED_PHONE_NUMBERS=972521234567:שם:female,972529876543:שם2:male
 ```
 
-Then `npm run prisma:seed`. Full ER diagrams and flows: [**Database schema & connections**](database-schema-and-connections.md).
+Then `npm run prisma:seed` (creates a row per phone; only fills name/gender when the env supplies them). Full ER diagrams and flows: [**Database schema & connections**](database-schema-and-connections.md).
 
 ---
 

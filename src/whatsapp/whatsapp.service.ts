@@ -196,7 +196,6 @@ export class WhatsappService {
   private async patientReplyOptions(
     senderWaId: string,
   ): Promise<PatientReplyOptions> {
-    await this.familyMembers.healDisplayNameFromEnv(senderWaId).catch(() => {});
     const member = await this.familyMembers
       .findByPhone(senderWaId)
       .catch(() => null);

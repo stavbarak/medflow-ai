@@ -60,7 +60,7 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **Role:** **Family access control** — only approved phone numbers can register, log in, reset passwords, or talk to the WhatsApp bot.
 
-**How:** Global `@Global()` module exposing **`FamilyMemberService`** and **`FamilyPersonaService`**. Checks **`ALLOWED_PHONE_NUMBERS`** (env, `phone:name:gender`) **or** rows in **`FamilyMember`**. Used by **`AuthService`** (register/login/forgot) and **`WhatsappService.dispatchMessage`**. See [Database schema & connections](database-schema-and-connections.md).
+**How:** Global `@Global()` module exposing **`FamilyMemberService`** and **`FamilyPersonaService`**. Checks **`ALLOWED_PHONE_NUMBERS`** (env access list of phones; optional `:name:gender` bootstrap) **or** rows in **`FamilyMember`** (which owns name/gender). Used by **`AuthService`** (register/login/forgot) and **`WhatsappService.dispatchMessage`**. See [Database schema & connections](database-schema-and-connections.md).
 
 ---
 

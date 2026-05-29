@@ -24,7 +24,7 @@ flowchart TB
   end
 
   subgraph env [Config not in git]
-    ENV["ALLOWED_PHONE_NUMBERS\nphone:name:gender"]
+    ENV["ALLOWED_PHONE_NUMBERS\naccess list of phones"]
     DBURL[DATABASE_URL]
   end
 
@@ -164,8 +164,9 @@ One row = **one person** the product recognizes by phone.
 
 **Who writes here?**
 
-- **`npm run prisma:seed`** — reads `ALLOWED_PHONE_NUMBERS` from `.env` / Railway Variables.
-- **Register** — can update `displayName` / `gender` when someone creates a web account.
+- **Register** — the primary source of `displayName` / `gender`: the signup form's "שם" writes straight to `FamilyMember`.
+- **`npm run prisma:seed`** — ensures a row exists per allowlisted phone; only sets `displayName` / `gender` when the env entry actually supplies them (`phone:שם:gender`), and never clobbers an existing name with the phone placeholder.
+- **One-time SQL** — `scripts/seed-family-allowlist.sql` for backfilling names on legacy placeholder rows.
 
 **Who reads here?**
 
@@ -300,19 +301,24 @@ flowchart TD
 
 | Mechanism | When it matters |
 |-----------|-----------------|
-| **`ALLOWED_PHONE_NUMBERS` env** | Bootstrap before seed; emergency override; `railway run` seed source |
-| **`FamilyMember` table** | Source of truth for names, gender, and stable IDs |
+| **`ALLOWED_PHONE_NUMBERS` env** | **Access list only** — who may log in / use the bot; bootstrap before seed; `railway run` seed source |
+| **`FamilyMember` table** | **Source of truth** for names, gender, and stable IDs |
 
-**Format (one env var):**
+**Format (one env var):** bare comma-separated phones are the norm — name and gender belong to the table.
 
 ```env
+ALLOWED_PHONE_NUMBERS=972521234567,972529876543
+# optional bootstrap form (only fills name/gender when present):
 ALLOWED_PHONE_NUMBERS=972521234567:שם:female,972529876543:שם2:male
 ```
 
-- `phone` only → defaults: `displayName = phone`, `gender = male`
-- Recommended: always use **`phone:שם:male|female`**
+- `phone` only → parses to `displayName = null`, `gender = null`. The seed creates a row with the phone as a **placeholder** name, but **never overwrites** an existing name/gender. The real name arrives from **registration** or a one-time table fill.
+- `phone:שם:gender` → optional convenience; seed will set/refresh those fields.
+- This is deliberate: a bare-phone env used to clobber real names back to the phone number on every seed — now it can't.
 
-**Seed command:** `npm run prisma:seed` upserts into `FamilyMember`. It does **not** run automatically on every Railway deploy—only `prisma migrate deploy` does.
+**Seed command:** `npm run prisma:seed` upserts into `FamilyMember` (name/gender only when the env entry supplies them). It does **not** run automatically on every Railway deploy—only `prisma migrate deploy` does.
+
+**One-time name fill:** to set names for existing placeholder rows without putting them in env, run `scripts/seed-family-allowlist.sql` (gitignored; copy from `scripts/seed-family-allowlist.example.sql`) — an idempotent table upsert.
 
 ---
 
