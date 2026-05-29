@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { normalizeIsraeliPhone } from '../common/utils/phone';
 import {
   toPublicUser,
@@ -9,7 +10,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly familyMembers: FamilyMemberService,
+  ) {}
 
   async findByPhone(phoneInput: string) {
     const phoneNumber = normalizeIsraeliPhone(phoneInput.trim());
@@ -21,10 +25,24 @@ export class UsersService {
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id },
       select: userWithMemberSelect,
     });
+    if (!user) {
+      return null;
+    }
+    // Self-heal a placeholder name (phone) from the allowlist roster, so the
+    // logged-in user's real name shows up without re-seeding or re-registering.
+    if (user.familyMember.displayName === user.familyMember.phoneNumber) {
+      await this.familyMembers.healDisplayNameFromEnv(
+        user.familyMember.phoneNumber,
+      );
+      user = await this.prisma.user.findUnique({
+        where: { id },
+        select: userWithMemberSelect,
+      });
+    }
     return user ? toPublicUser(user) : null;
   }
 
