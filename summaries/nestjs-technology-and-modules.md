@@ -46,6 +46,16 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** `ConfigModule.forRoot({ isGlobal: true })` registers it once; any provider can inject `ConfigService` for secrets like `JWT_SECRET`, `DATABASE_URL`, or AI keys without reading `process.env` scattered everywhere.
 
+```22:29:src/phone-allowlist/family-member.service.ts
+  getEnvPhones(): string[] {
+    const raw = this.config.get<string>('ALLOWED_PHONE_NUMBERS');
+    if (!raw?.trim()) {
+      return [];
+    }
+    return phoneNumbersFromRoster(parseAllowedPhoneNumbersEnv(raw));
+  }
+```
+
 ---
 
 ### `PrismaModule`
@@ -53,6 +63,22 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** Single **database access** layer for the whole app.
 
 **How:** `@Global()` so we do not re-import it in every feature module. It provides **`PrismaService`** (extends Prisma’s generated client, handles connection lifecycle). Services inject `PrismaService` and run queries against **Postgres**. Migrations and schema live in `prisma/`; the client is generated at build time.
+
+```4:16:src/prisma/prisma.service.ts
+@Injectable()
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  async onModuleInit(): Promise<void> {
+    await this.$connect();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.$disconnect();
+  }
+}
+```
 
 ---
 
@@ -62,6 +88,19 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** Global `@Global()` module exposing **`FamilyMemberService`** and **`FamilyPersonaService`**. Checks **`ALLOWED_PHONE_NUMBERS`** (env access list of phones; optional `:name:gender` bootstrap) **or** rows in **`FamilyMember`** (which owns name/gender). Used by **`AuthService`** (register/login/forgot) and **`WhatsappService.dispatchMessage`**. See [Database schema & connections](database-schema-and-connections.md).
 
+```72:81:src/phone-allowlist/family-member.service.ts
+  async isAllowed(phoneInput: string): Promise<boolean> {
+    const normalized = this.normalize(phoneInput);
+    if (this.getEnvPhones().includes(normalized)) {
+      return true;
+    }
+    const row = await this.prisma.familyMember.findUnique({
+      where: { phoneNumber: normalized },
+    });
+    return row != null;
+  }
+```
+
 ---
 
 ### `AuthModule`
@@ -69,6 +108,18 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** **Register**, **login**, and everything needed to **issue and validate JWTs**.
 
 **How:** **`AuthController`** exposes `POST /api/auth/register` and `POST /api/auth/login`. **`AuthService`** hashes passwords (bcrypt), creates users, and returns JWTs. **`JwtModule`** is configured asynchronously from `JWT_SECRET` and optional expiry. **`PassportModule`** + **`JwtStrategy`** decode the `Authorization: Bearer` token and attach a **`AuthenticatedUser`** to the request so `@UseGuards(AuthGuard('jwt'))` routes know who is calling.
+
+```216:224:src/auth/auth.service.ts
+  private buildAuthResponse(user: Parameters<typeof toPublicUser>[0]) {
+    const publicUser = toPublicUser(user);
+    const payload: JwtPayload = {
+      sub: publicUser.id,
+      phoneNumber: publicUser.phoneNumber,
+    };
+    const access_token = this.jwt.sign(payload);
+    return { access_token, user: publicUser };
+  }
+```
 
 ---
 
@@ -78,6 +129,18 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** **`UsersController`** is JWT-protected. `GET /api/users/me` returns the current user; `PATCH /api/users/me` updates allowed fields. **`UsersService`** wraps Prisma reads/updates. This stays intentionally small: no public user directory, just “me.”
 
+```13:21:src/users/users.controller.ts
+  @Get('me')
+  me(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.findOne(user.id);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateUserDto) {
+    return this.users.update(user.id, dto);
+  }
+```
+
 ---
 
 ### `AppointmentsModule`
@@ -85,6 +148,26 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** The **schedule** — each row is an appointment (title, time, location, notes, optional **responsible** user).
 
 **How:** Routes require a **logged-in** user (JWT), but the underlying model is a **shared family-style calendar**: list and detail endpoints return appointments from the database without a separate “only my rows” filter—good enough when everyone who has a login is trusted. **`AppointmentsController`** exposes full CRUD plus **`upcoming`** (from a given date, capped) and **`next`** (single nearest future slot). **`AppointmentsService`** talks to Prisma and validates that IDs exist before updates or deletes.
+
+```22:38:src/appointments/appointments.controller.ts
+@Controller('appointments')
+@UseGuards(AuthGuard('jwt'))
+export class AppointmentsController {
+  constructor(private readonly appointments: AppointmentsService) {}
+
+  @Post()
+  create(@Body() dto: CreateAppointmentDto) {
+    return this.appointments.create(dto);
+  }
+
+  @Get('upcoming')
+  upcoming(
+    @Query('from') from?: string,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.appointments.upcoming(from, limit);
+  }
+```
 
 ---
 
@@ -94,6 +177,19 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** Routes are **nested** under `appointments/:appointmentId/requirements` so URLs match the data shape. **`RequirementsService`** makes sure the **parent appointment exists** before creating, listing, updating, or deleting requirements, and keeps `requirementId` tied to the right `appointmentId` so you cannot patch a requirement “into” the wrong visit by accident.
 
+```10:19:src/requirements/requirements.service.ts
+  async create(appointmentId: string, dto: CreateRequirementDto) {
+    await this.ensureAppointment(appointmentId);
+    return this.prisma.requirement.create({
+      data: {
+        appointmentId,
+        description: dto.description,
+        isDone: dto.isDone ?? false,
+      },
+    });
+  }
+```
+
 ---
 
 ### `DocumentsModule`
@@ -101,6 +197,21 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** **Medical document records** linked to an appointment: a **URL** (where the file lives — cloud storage, drive link, etc.) plus optional **notes**, and who uploaded it.
 
 **How:** JWT-protected routes under `/api/documents`. **`DocumentsService`** creates rows with **`uploadedByUserId`** set from the current user, optional **`appointmentId`**, **`fileUrl`**, and **`notes`**. List and fetch endpoints return documents **with** related appointment and uploader summaries for the UI; tighten ownership checks later if you need stricter isolation than today’s schema implies.
+
+```34:45:src/documents/documents.service.ts
+  async create(userId: string, dto: CreateDocumentDto) {
+    const doc = await this.prisma.medicalDocument.create({
+      data: {
+        appointmentId: dto.appointmentId,
+        fileUrl: dto.fileUrl,
+        notes: dto.notes ?? '',
+        uploadedByUserId: userId,
+      },
+      include: documentInclude,
+    });
+    return mapDocument(doc);
+  }
+```
 
 ---
 
@@ -120,6 +231,25 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 | `mergeAppointmentNotes` | WhatsApp update (companions, transport, prep) |
 | `answerQuestionFromFacts` | `QueryService`, WhatsApp questions |
 
+Each method builds a Hebrew system prompt and asks OpenAI for JSON; callers pass text in and get validated fields back:
+
+```67:80:src/ai/ai.service.ts
+  async extractAppointmentFromText(
+    text: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<WakeAppointmentFields> {
+    return this.extractAppointmentFields(text, 'create', replyOptions);
+  }
+
+  /** Extract only what the user wants to add or change on an existing appointment. */
+  async extractAppointmentUpdateDelta(
+    text: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<WakeAppointmentFields> {
+    return this.extractAppointmentFields(text, 'update', replyOptions);
+  }
+```
+
 ---
 
 ### `QueryModule`
@@ -127,6 +257,34 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** **Grounded question answering** — read DB first, then ask the model to phrase a Hebrew answer from a JSON facts blob.
 
 **How:** **`QueryController`** → `POST /api/query/answer`. **`QueryService.buildQnAFactsPayload`** loads upcoming appointments and **expands** to past + keyword counts when the question needs it (history/counting/prep/treatment), then `answerGroundedWithGuard` calls the model and applies a Hebrew-only guard. **`buildUpcomingFactsPayload`** + **`formatFactsDumpHebrew`** format the list **without** an LLM (WhatsApp `חנטריש` alone). Q&A is a **single grounded path** (no intent classifier); the WhatsApp layer also threads short per-sender conversation history via `ConversationService`. Imports **`AiModule`** for `answerQuestionFromFacts`. Details: [Stage 3 walkthrough 2](stage-3-ai-extraction-and-queries.md#walkthrough-2--grounded-qa-conversational).
+
+```184:208:src/query/query.service.ts
+  private async answerGroundedWithGuard(
+    question: string,
+    factsJson: string,
+    replyOptions?: PatientReplyOptions,
+    history?: ConversationTurnDto[],
+  ): Promise<string> {
+    let answer = await this.ai.answerQuestionFromFacts(
+      question,
+      factsJson,
+      replyOptions,
+      history,
+    );
+    if (hasDisallowedLatin(answer)) {
+      answer = await this.ai.answerQuestionFromFacts(
+        question,
+        factsJson,
+        replyOptions,
+        history,
+      );
+      if (hasDisallowedLatin(answer)) {
+        answer = stripDisallowedLatin(answer);
+      }
+    }
+    return answer;
+  }
+```
 
 ---
 
@@ -136,6 +294,19 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 
 **How:** **`WhatsappController`** is **not** JWT-protected. **`WhatsappService`** verifies HMAC, gates on **allowlist only** (no web registration required for WhatsApp), then gates the **wake word by chat type** — required only in group chats, skipped in 1:1 DMs. It classifies intent (`whatsapp-wake-intent.ts`) and delegates to **`AppointmentsService`**, **`QueryService`**, **`AiService`**. Replies are **personalized** (sender name + gendered Hebrew), destructive cancels go through a **confirmation** step, and recent turns are pulled from **`ConversationService`** for follow-ups. End-to-end flow diagram: [Stage 4](stage-4-whatsapp-module.md).
 
+```145:154:src/whatsapp/whatsapp.service.ts
+    const text = message.text.trim();
+    if (!text) {
+      return;
+    }
+
+    const hadWakeWord = containsWakeWord(text);
+    // In group chats the bot must be called by name; in 1:1 DMs every message is for it.
+    if (message.replyTo.type === 'group' && !hadWakeWord) {
+      return;
+    }
+```
+
 ---
 
 ### `ConversationModule`
@@ -143,6 +314,25 @@ Paths below are under `src/`. All **HTTP routes** are prefixed with **`/api`** g
 **Role:** **Short-term WhatsApp memory + pending confirmations** — lets the bot handle follow-up questions and confirm destructive actions.
 
 **How:** Provides **`ConversationService`**, which stores per-sender **`ConversationTurn`** rows (threaded into Q&A) and at most one **`PendingAction`** per sender (a cancel awaiting `כן`). Writes prune aggressively (TTL + per-sender cap) and a daily **`@Cron`** sweep (via `ScheduleModule`) clears stale rows, so Postgres stays small. Imported by `WhatsappModule`. See [Database schema](database-schema-and-connections.md#conversationturn--short-term-whatsapp-memory).
+
+```30:45:src/conversation/conversation.service.ts
+  async getRecentTurns(
+    senderWaId: string,
+    opts?: { ttlMinutes?: number; limit?: number },
+  ): Promise<ConversationTurnDto[]> {
+    const ttlMinutes = opts?.ttlMinutes ?? DEFAULT_TURN_TTL_MINUTES;
+    const limit = opts?.limit ?? 6;
+    const cutoff = new Date(Date.now() - ttlMinutes * 60 * 1000);
+    const rows = await this.prisma.conversationTurn.findMany({
+      where: { senderWaId, createdAt: { gte: cutoff } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return rows
+      .reverse()
+      .map((r) => ({ role: r.role as ConversationRole, text: r.text }));
+  }
+```
 
 ---
 
@@ -214,13 +404,13 @@ flowchart TB
 flowchart LR
   subgraph spa ["Web SPA (JWT)"]
     R[Register / Login] --> JWT[JWT Bearer]
-    JWT --> AP[/api/appointments]
-    JWT --> Q[/api/query/answer]
-    JWT --> E[/api/ai/extract]
+    JWT --> AP["/api/appointments"]
+    JWT --> Q["/api/query/answer"]
+    JWT --> E["/api/ai/extract"]
   end
 
   subgraph wa ["WhatsApp (no JWT)"]
-    M[Meta webhook] --> W[/api/whatsapp]
+    M[Meta webhook] --> W["/api/whatsapp"]
     W --> AL{allowlist?}
     AL --> INT[intent + services]
   end

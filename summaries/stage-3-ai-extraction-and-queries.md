@@ -139,14 +139,18 @@ After the model returns, three layers run **before** anything hits Postgres:
 
 Relevant entry point:
 
-```51:95:src/ai/ai.service.ts
-  async extractAppointmentFromText(text: string): Promise<WakeAppointmentFields> {
-    return this.extractAppointmentFields(text, 'create');
+```67:124:src/ai/ai.service.ts
+  async extractAppointmentFromText(
+    text: string,
+    replyOptions?: PatientReplyOptions,
+  ): Promise<WakeAppointmentFields> {
+    return this.extractAppointmentFields(text, 'create', replyOptions);
   }
   // ...
   private async extractAppointmentFields(
     text: string,
     mode: 'create' | 'update',
+    replyOptions?: PatientReplyOptions,
   ): Promise<WakeAppointmentFields> {
     // ... OpenAI call with mode-specific system prompt ...
     const merged = mergeWakeAppointmentExtraction(parsed, text);
@@ -334,20 +338,23 @@ flowchart TD
 
 Update orchestration in WhatsApp layer:
 
-```234:336:src/whatsapp/whatsapp.service.ts
-  private async handleWakeUpdate(payload: string): Promise<string> {
+```336:434:src/whatsapp/whatsapp.service.ts
+  private async handleWakeUpdate(
+    payload: string,
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
   // ...
-    const extracted = await this.ai.extractAppointmentUpdateDelta(payload);
+    const extracted = await this.ai.extractAppointmentUpdateDelta(payload, replyOpts);
     const lookup = await this.resolveAppointmentForUpdate(payload);
   // ...
-    const reconciled = await this.ai.reconcileAppointmentUpdate(/* existing */, payload);
+    const target = lookup.appointment;
+    const reconciled = await this.ai.reconcileAppointmentUpdate(/* existing */, payload, replyOpts);
     const { patch: schedulePatch } = buildSchedulePatch(payload, target);
   // ...
     if (shouldMergeNotes) {
-      const merged = await this.ai.mergeAppointmentNotes(target.notes ?? '', payload);
+      const merged = await this.ai.mergeAppointmentNotes(target.notes ?? '', payload, replyOpts);
       // ...
     }
-    const updated = await this.appointments.update(target.id, patch);
 ```
 
 ---
