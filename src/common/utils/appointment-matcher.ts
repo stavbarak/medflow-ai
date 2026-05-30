@@ -17,6 +17,7 @@ export type AppointmentMatchRow = {
   transportNotes: string;
   createdAt: Date;
   dateTime: Date;
+  timeKnown: boolean;
 };
 
 export type ResolveUpdateTargetResult =
@@ -195,7 +196,7 @@ function formatAmbiguousAppointmentListHebrew(
 ): string {
   return appointments
     .map((a, i) => {
-      const when = formatAppointmentWhenHebrew(a.dateTime, true);
+      const when = formatAppointmentWhenHebrew(a.dateTime, a.timeKnown);
       return `${i + 1}. ${a.title} — ${when}, ${a.location}`;
     })
     .join('\n');
@@ -226,7 +227,7 @@ export function formatNoTimeMatchOnDayHebrew(
   const hh = String(requestedTime.hour).padStart(2, '0');
   const mm = String(requestedTime.minute).padStart(2, '0');
   const lines = appointments.map((a) => {
-    const when = formatAppointmentWhenHebrew(a.dateTime, true);
+    const when = formatAppointmentWhenHebrew(a.dateTime, a.timeKnown);
     return `• ${a.title} (${when})`;
   });
   return (

@@ -1,5 +1,6 @@
 import { Gender } from '@prisma/client';
 import {
+  IsBoolean,
   IsDateString,
   IsOptional,
   IsString,
@@ -15,6 +16,10 @@ export class CreateAppointmentDto {
 
   @IsDateString({}, { message: 'תאריך ושעה לא תקינים' })
   dateTime: string;
+
+  @IsOptional()
+  @IsBoolean()
+  timeKnown?: boolean;
 
   @IsString()
   @MinLength(1, { message: 'מיקום נדרש' })

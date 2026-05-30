@@ -9,8 +9,10 @@ export type ConversationTurnDto = {
   text: string;
 };
 
+export type PendingActionKind = 'cancel' | 'awaitTime';
+
 export type PendingActionDto = {
-  kind: 'cancel';
+  kind: PendingActionKind;
   appointmentId: string;
   summary: string;
 };
@@ -118,7 +120,7 @@ export class ConversationService {
       return null;
     }
     return {
-      kind: row.kind as 'cancel',
+      kind: row.kind as PendingActionKind,
       appointmentId: row.appointmentId,
       summary: row.summary,
     };

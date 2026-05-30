@@ -313,7 +313,7 @@ Each method builds a Hebrew system prompt and asks OpenAI for JSON; callers pass
 
 **Role:** **Short-term WhatsApp memory + pending confirmations** — lets the bot handle follow-up questions and confirm destructive actions.
 
-**How:** Provides **`ConversationService`**, which stores per-sender **`ConversationTurn`** rows (threaded into Q&A) and at most one **`PendingAction`** per sender (a cancel awaiting `כן`). Writes prune aggressively (TTL + per-sender cap) and a daily **`@Cron`** sweep (via `ScheduleModule`) clears stale rows, so Postgres stays small. Imported by `WhatsappModule`. See [Database schema](database-schema-and-connections.md#conversationturn--short-term-whatsapp-memory).
+**How:** Provides **`ConversationService`**, which stores per-sender **`ConversationTurn`** rows (threaded into Q&A) and at most one **`PendingAction`** per sender (a cancel awaiting `כן`, or an `awaitTime` follow-up waiting for the hour of an appointment created without one). Writes prune aggressively (TTL + per-sender cap) and a daily **`@Cron`** sweep (via `ScheduleModule`) clears stale rows, so Postgres stays small. Imported by `WhatsappModule`. See [Database schema](database-schema-and-connections.md#conversationturn--short-term-whatsapp-memory).
 
 ```30:45:src/conversation/conversation.service.ts
   async getRecentTurns(

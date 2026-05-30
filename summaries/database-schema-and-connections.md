@@ -99,6 +99,7 @@ erDiagram
     string id PK
     string title
     datetime dateTime "UTC in DB"
+    boolean timeKnown "is the hour real?"
     string location
     string notes
     string transportNotes
@@ -139,7 +140,7 @@ erDiagram
   PendingAction {
     string id PK
     string senderWaId UK "phone, not FK"
-    string kind "cancel"
+    string kind "cancel | awaitTime"
     string appointmentId
     string summary
     datetime expiresAt
@@ -211,7 +212,9 @@ flowchart LR
 
 ### `Appointment` — shared calendar
 
-Core fields: `title`, `dateTime`, `location`, `notes`.
+Core fields: `title`, `dateTime`, `timeKnown`, `location`, `notes`.
+
+`timeKnown` records whether the **hour is real**. `dateTime` is always a full timestamp, but when someone books a date without a time (common on WhatsApp), we still must store *some* instant — so we anchor it to local noon and set `timeKnown = false`. This keeps a genuine 12:00 appointment (`timeKnown = true`) distinct from "time not set yet". Every display and the AI grounding read this flag: when it's `false` they show the date only and never assert or "correct" an hour. Web/API creates default to `true` (their picker always includes a time); the WhatsApp create sets it from what was actually said and then asks for the missing hour.
 
 | Relation | Purpose |
 |----------|---------|
@@ -268,15 +271,20 @@ One row per message in a 1:1 chat (`role` = `user` | `assistant`, plus `text`). 
 
 ---
 
-### `PendingAction` — confirmation for destructive ops
+### `PendingAction` — one-shot follow-up the bot is waiting on
 
-At most **one row per sender** (`senderWaId` is unique). When someone asks to cancel in a DM (no wake word), the bot stores a `PendingAction` instead of deleting, then waits for a `כן`. `consumePendingAction` reads-and-clears it; expired rows (`expiresAt`) are ignored and swept by the same daily cron.
+At most **one row per sender** (`senderWaId` is unique). It captures a single thing the bot expects the user to answer next:
+
+- `cancel` — a delete in a DM (no wake word) is stored instead of executed; the bot waits for a `כן` before deleting.
+- `awaitTime` — an appointment was created without a time; the bot saved the date and is waiting for the hour. The next message carrying a time fills it in (and flips `Appointment.timeKnown` to `true`); a `כן` re-asks; a "לא"/"אחר כך" leaves it date-only; anything else is handled normally.
+
+`consumePendingAction` reads-and-clears it; expired rows (`expiresAt`) are ignored and swept by the same daily cron.
 
 | Column | Meaning |
 |--------|---------|
-| `kind` | Action type (currently `cancel`) |
-| `appointmentId` | Target appointment to delete on confirmation |
-| `summary` | Hebrew description echoed back to the user |
+| `kind` | Action type: `cancel` or `awaitTime` |
+| `appointmentId` | Target appointment (to delete, or to set the time on) |
+| `summary` | Hebrew description / title echoed back to the user |
 | `expiresAt` | After this, the pending action is dead |
 
 ---
@@ -378,6 +386,7 @@ Important migrations:
 
 - **`20260523120000_family_member_refactor`** — replaced `AllowedPhone` + duplicated `User` profile fields with `FamilyMember` + `User.familyMemberId`.
 - **`20260529193000_conversation_memory`** — added `ConversationTurn` + `PendingAction` for WhatsApp conversation memory and destructive-action confirmation.
+- **`20260530150000_appointment_time_known`** — added `Appointment.timeKnown` (default `true`) so a date-only booking is distinct from a real 12:00; backfills legacy rows stored at the noon anchor (`12:00 Asia/Jerusalem`) to `false`.
 
 If a migration **fails** on Railway, Prisma blocks further deploys until you fix the DB and run `prisma migrate resolve`. Recovery scripts live under `scripts/complete-family-migration.sql` (see [Deployment](deployment-railway-and-spa.md)).
 

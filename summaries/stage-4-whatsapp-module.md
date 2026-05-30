@@ -39,9 +39,10 @@ flowchart TB
   DISP --> GATE{group and no wake word?}
   GATE -->|yes| DROP[ignore]
   GATE -->|no| AL[FamilyMemberService.isAllowed]
-  AL --> PEND{pending cancel + affirmation?}
-  PEND -->|yes| CONF[confirmPendingAction → delete]
-  PEND -->|no| COMP[composeReply]
+  AL --> PEND{pending action?}
+  PEND -->|cancel + כן| CONF[confirmPendingAction → delete]
+  PEND -->|awaitTime + time| TSET[set hour, timeKnown=true]
+  PEND -->|no / falls through| COMP[composeReply]
   COMP --> INT[classifyWakePayload]
   INT -->|list| Q1[QueryService.formatFactsDumpHebrew]
   INT -->|question| Q2[QueryService.answerWakeWord + history]
@@ -82,6 +83,8 @@ sequenceDiagram
         W->>CV: consumePendingAction(sender)
         alt pending cancel + "כן"
           W->>M: "ביטלתי תור…"
+        else pending awaitTime + a time
+          W->>M: "עדכנתי — … ב-14:00"
         else
           W->>CV: getRecentTurns(sender)
           W->>W: composeReply → intent switch
@@ -93,43 +96,67 @@ sequenceDiagram
   end
 ```
 
-Entry point in code (gate by **chat type**, then allowlist, then pending-confirmation, then compose):
+Entry point in code (gate by **chat type**, then allowlist, then pending-action, then compose):
 
-```140:194:src/whatsapp/whatsapp.service.ts
+```140:201:src/whatsapp/whatsapp.service.ts
   private async dispatchMessage(message: {
     text: string;
     senderWaId: string;
     replyTo: WhatsappSendTarget;
   }) {
     const text = message.text.trim();
-    if (!text) return;
+    if (!text) {
+      return;
+    }
 
     const hadWakeWord = containsWakeWord(text);
     // In group chats the bot must be called by name; in 1:1 DMs every message is for it.
-    if (message.replyTo.type === 'group' && !hadWakeWord) return;
+    if (message.replyTo.type === 'group' && !hadWakeWord) {
+      return;
+    }
 
     if (!(await this.familyMembers.isAllowed(message.senderWaId))) {
+      this.logger.debug(`Rejected unknown phone ${message.senderWaId}`);
       await this.safeSend(message.replyTo, PHONE_NOT_ON_ALLOWLIST_HE);
       return;
     }
+
     const replyOpts = await this.patientReplyOptions(message.senderWaId);
 
-    const pending = await this.conversation.consumePendingAction(message.senderWaId);
-    if (pending && isAffirmation(text)) {
-      const reply = await this.confirmPendingAction(pending, replyOpts);
-      await this.safeSend(message.replyTo, reply);
-      await this.recordTurns(message.senderWaId, text, reply);
-      return;
+    // A pending action awaiting the user's reply (cancel confirmation, or a
+    // follow-up time for an appointment created without one).
+    const pending = await this.conversation.consumePendingAction(
+      message.senderWaId,
+    );
+    if (pending) {
+      const reply = await this.handlePendingAction(
+        pending,
+        text,
+        replyOpts,
+        message.senderWaId,
+      );
+      if (reply !== null) {
+        await this.safeSend(message.replyTo, reply);
+        await this.recordTurns(message.senderWaId, text, reply);
+        return;
+      }
     }
 
-    const history = await this.conversation.getRecentTurns(message.senderWaId, { limit: 10 });
-    const reply = await this.composeReply(text, message.senderWaId, replyOpts, hadWakeWord, history);
+    const history = await this.conversation.getRecentTurns(
+      message.senderWaId,
+      { limit: 10 },
+    );
+    const reply = await this.composeReply(
+      text, message.senderWaId, replyOpts, hadWakeWord, history,
+    );
     if (reply) {
       await this.safeSend(message.replyTo, reply);
       await this.recordTurns(message.senderWaId, text, reply);
     }
   }
 ```
+
+A `PendingAction` is no longer just a yes/no for cancel. `handlePendingAction` dispatches by `kind`: a **`cancel`** still needs an affirmation before deleting, while **`awaitTime`** (set when an appointment was created without an hour) interprets the next message — a time fills the hour in, a "כן" re-asks, a "לא"/"אחר כך" leaves it date-only, and anything else returns `null` to fall through to normal processing so the user is never trapped.
 
 **Wake word, gated by chat type:** the wake word `חנטריש` (`BOT_WAKE_WORD`) is only **required in group chats**, where the bot must not reply to every family message. In a **1:1 DM** every message is obviously for the bot, so no wake word is needed — it reads `message.replyTo.type`. `stripWakeWord` still runs when the word is present, so `חנטריש` mid-sentence in a DM is harmless.
 
@@ -167,7 +194,7 @@ export function classifyWakePayload(payload: string): WakeIntent {
 |--------|----------------------------|---------------|-----------|
 | **list** | `חנטריש` alone / "מה התורים?" | `QueryService.buildUpcomingFactsPayload` + `formatFactsDumpHebrew` | **0** |
 | **question** | `מתי התור הבא?` | `QueryService.answerWakeWord(text, replyOpts, history)` | 1 (grounded Q&A, with history) |
-| **create** | `לאבא יש תור ב-27.5…` | `AiService.extractAppointmentFromText` → `AppointmentsService.create` | 1 (extract) |
+| **create** | `לאבא יש תור ב-27.5…` | `AiService.extractAppointmentFromText` → `AppointmentsService.create` (stores `timeKnown`; if no hour was given it saves the date and **asks for the time** via an `awaitTime` pending action) | 1 (extract) |
 | **update** | `תעדכן שהתור ב-30.7 בשעה 9:30` | See [Stage 3 update walkthrough](stage-3-ai-extraction-and-queries.md#walkthrough-3--update-flow-whatsapp-only-richest-ai-path) | up to **3** |
 | **cancel** | `תבטל את התור ב-27.5` | Extract date → match appointment → **confirm then delete** | 1 (date via extract) |
 
@@ -208,6 +235,7 @@ export function classifyWakePayload(payload: string): WakeIntent {
 - **Full CRUD-style intents** — create, update (with appointment matching), cancel, list, Q&A—not “always create” anymore.
 - **Chat-type wake-word gating** — 1:1 DMs respond to every message; group chats still require `חנטריש`.
 - **Destructive-action confirmation** — cancel/delete in a DM asks `"האם לבטל…?"` first and only deletes after an affirmation (`PendingAction`).
+- **No fabricated times** — a create without an hour is saved date-only (`Appointment.timeKnown = false`) and the bot **asks for the time** instead of inventing one; the next message with a time fills it in. A genuine 12:00 stays a real 12:00.
 - **Conversation memory** — recent turns per sender (`ConversationService`) are threaded into Q&A so follow-ups like "ומה עם הבא?" work.
 - **Personalized replies** — answers address the sender by name with correct gendered Hebrew, derived from their `FamilyMember` row.
 - **Outbound** — Graph API **`v22.0`** when tokens are set; otherwise log `[WhatsApp לא מוגדר]` for local dev.

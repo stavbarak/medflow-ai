@@ -6,6 +6,7 @@ import {
 export type AdditiveUpdatePatch = {
   title?: string;
   dateTime?: string;
+  timeKnown?: boolean;
   location?: string;
   notes?: string;
   transport?: string;
@@ -40,6 +41,7 @@ export function buildSchedulePatch(
   );
   if (timeOnly) {
     patch.dateTime = timeOnly.dateTime;
+    patch.timeKnown = true;
     return { patch, timeMentionedInMessage: true };
   }
 

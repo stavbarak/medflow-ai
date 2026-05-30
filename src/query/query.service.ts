@@ -56,11 +56,13 @@ export class QueryService {
   private toFactRow(
     a: any,
   ) {
+    const timeKnown = a.timeKnown ?? true;
     return {
       id: a.id,
       title: a.title,
       dateTime: a.dateTime.toISOString(),
-      whenHebrew: formatAppointmentWhenHebrew(a.dateTime, true),
+      timeKnown,
+      whenHebrew: formatAppointmentWhenHebrew(a.dateTime, timeKnown),
       location: a.location,
       notes: a.notes,
       transportUser: transportUserDisplay(a.transportUser),
@@ -231,8 +233,9 @@ export class QueryService {
       '',
     ];
     for (const a of upcomingAppointments) {
-      const when = formatAppointmentWhenHebrew(a.dateTime, true);
-      lines.push(`• ${a.title} — ${when}`);
+      const when = formatAppointmentWhenHebrew(a.dateTime, a.timeKnown);
+      const timeSuffix = a.timeKnown ? '' : ' (השעה טרם נקבעה)';
+      lines.push(`• ${a.title} — ${when}${timeSuffix}`);
       lines.push(`  📍 ${a.location}`);
       const transportLine = formatAppointmentTransportHebrew(
         {

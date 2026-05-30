@@ -54,6 +54,7 @@ model Appointment {
   id                String   @id @default(uuid())
   title             String
   dateTime          DateTime
+  timeKnown         Boolean  @default(true)
   location          String
   notes             String   @default("")
   transportNotes    String   @default("")
@@ -100,11 +101,12 @@ model ConversationTurn {
   @@index([senderWaId, createdAt])
 }
 
-/// A destructive action (e.g. cancel) awaiting the sender's confirmation. One per sender.
+/// A one-shot follow-up the bot is waiting on (cancel confirmation, or the hour
+/// of an appointment created without a time). One per sender.
 model PendingAction {
   id            String   @id @default(uuid())
   senderWaId    String   @unique
-  kind          String // 'cancel'
+  kind          String // 'cancel' | 'awaitTime'
   appointmentId String
   summary       String   @default("")
   expiresAt     DateTime

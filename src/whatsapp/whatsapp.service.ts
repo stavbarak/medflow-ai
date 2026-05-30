@@ -22,6 +22,7 @@ import {
   resolveUpdateTarget,
 } from '../common/utils/appointment-matcher';
 import {
+  applyTimeToAppointmentDay,
   extractTimeFromText,
   formatAppointmentWhenHebrew,
   listDateMatchesInText,
@@ -32,7 +33,6 @@ import {
 import { buildSchedulePatch } from '../common/utils/appointment-update-patch';
 import {
   inferWakeAppointmentFields,
-  isLikelyDateOnlyTime,
   isPlaceholderLocation,
   isPlaceholderTitle,
 } from '../common/utils/wake-appointment-fields';
@@ -56,7 +56,7 @@ import { FamilyPersonaService } from '../phone-allowlist/family-persona.service'
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
 import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import { personaNameFromLabel } from '../common/utils/family-persona';
-import { isAffirmation } from '../common/utils/affirmation';
+import { isAffirmation, isDecline } from '../common/utils/affirmation';
 import {
   ConversationService,
   type ConversationTurnDto,
@@ -165,15 +165,23 @@ export class WhatsappService {
 
     const replyOpts = await this.patientReplyOptions(message.senderWaId);
 
-    // A pending destructive action (e.g. cancel) awaiting confirmation.
+    // A pending action awaiting the user's reply (cancel confirmation, or a
+    // follow-up time for an appointment created without one).
     const pending = await this.conversation.consumePendingAction(
       message.senderWaId,
     );
-    if (pending && isAffirmation(text)) {
-      const reply = await this.confirmPendingAction(pending, replyOpts);
-      await this.safeSend(message.replyTo, reply);
-      await this.recordTurns(message.senderWaId, text, reply);
-      return;
+    if (pending) {
+      const reply = await this.handlePendingAction(
+        pending,
+        text,
+        replyOpts,
+        message.senderWaId,
+      );
+      if (reply !== null) {
+        await this.safeSend(message.replyTo, reply);
+        await this.recordTurns(message.senderWaId, text, reply);
+        return;
+      }
     }
 
     const history = await this.conversation.getRecentTurns(
@@ -223,6 +231,69 @@ export class WhatsappService {
     await this.conversation.appendTurn(senderWaId, 'assistant', reply);
   }
 
+  /**
+   * Act on a pending action given the user's next message.
+   * Returns the reply to send, or null to fall through to normal processing
+   * (e.g. the user ignored the prompt and asked something else).
+   */
+  private async handlePendingAction(
+    pending: PendingActionDto,
+    text: string,
+    replyOpts: PatientReplyOptions,
+    senderWaId: string,
+  ): Promise<string | null> {
+    if (pending.kind === 'cancel') {
+      return isAffirmation(text)
+        ? this.confirmPendingAction(pending, replyOpts)
+        : null;
+    }
+    if (pending.kind === 'awaitTime') {
+      return this.handleAwaitTimeReply(pending, text, replyOpts, senderWaId);
+    }
+    return null;
+  }
+
+  /** Fill in the hour for an appointment we saved without a time. */
+  private async handleAwaitTimeReply(
+    pending: PendingActionDto,
+    text: string,
+    replyOpts: PatientReplyOptions,
+    senderWaId: string,
+  ): Promise<string | null> {
+    const greeting = this.greeting(replyOpts);
+
+    if (textHasExplicitTime(text)) {
+      let appt: { id: string; title: string; dateTime: Date | string };
+      try {
+        appt = await this.appointments.findOne(pending.appointmentId);
+      } catch {
+        return null; // appointment is gone — let the message be handled normally
+      }
+      const when = applyTimeToAppointmentDay(new Date(appt.dateTime), text);
+      if (!when) {
+        return null;
+      }
+      const updated = await this.appointments.update(pending.appointmentId, {
+        dateTime: when.dateTime,
+        timeKnown: true,
+      });
+      const formatted = formatAppointmentWhenHebrew(updated.dateTime, true);
+      return `${greeting}עדכנתי — ${updated.title} ב-${formatted}.`;
+    }
+
+    if (isAffirmation(text)) {
+      // "כן" without an actual time — keep waiting and ask again.
+      await this.conversation.setPendingAction(senderWaId, pending);
+      return `${greeting}באיזו שעה?`;
+    }
+
+    if (isDecline(text)) {
+      return `${greeting}סבבה, השארתי בלי שעה. אפשר לעדכן מתי שתרצה.`;
+    }
+
+    return null; // unrelated message — process it normally
+  }
+
   private async confirmPendingAction(
     pending: PendingActionDto,
     replyOpts: PatientReplyOptions,
@@ -230,7 +301,10 @@ export class WhatsappService {
     const greeting = this.greeting(replyOpts);
     try {
       const removed = await this.appointments.remove(pending.appointmentId);
-      const when = formatAppointmentWhenHebrew(removed.dateTime, true);
+      const when = formatAppointmentWhenHebrew(
+        removed.dateTime,
+        removed.timeKnown,
+      );
       return `${greeting}ביטלתי תור: ${removed.title} (${when}).`;
     } catch {
       return `${greeting}לא מצאתי את התור לביטול (ייתכן שכבר בוטל).`;
@@ -264,9 +338,9 @@ export class WhatsappService {
             senderWaId,
           );
         case 'create':
-          return this.handleWakeCreate(payload, replyOpts);
+          return this.handleWakeCreate(payload, replyOpts, senderWaId);
         case 'update':
-          return this.handleWakeUpdate(payload, replyOpts);
+          return this.handleWakeUpdate(payload, replyOpts, senderWaId);
       }
     } catch (err) {
       this.logger.error(err instanceof Error ? err.message : err);
@@ -278,6 +352,7 @@ export class WhatsappService {
   private async handleWakeCreate(
     payload: string,
     replyOpts: PatientReplyOptions,
+    senderWaId?: string,
   ): Promise<string> {
     const greeting = this.greeting(replyOpts);
     const extracted = await this.ai.extractAppointmentFromText(
@@ -309,6 +384,7 @@ export class WhatsappService {
     const created = await this.appointments.create({
       title,
       dateTime: extracted.dateTime,
+      timeKnown: extracted.hasTime,
       location,
       notes: extracted.notes?.trim() ?? '',
       transportUserId: resolvedTransport.transportUserId ?? undefined,
@@ -327,19 +403,32 @@ export class WhatsappService {
       created.dateTime,
       extracted.hasTime,
     );
-    const timeNote = extracted.hasTime ? '' : ' (שעה לא צוינה)';
     const transportNote = await this.formatTransportNote(created, replyOpts);
     const prefix = replyOpts.addressSecondPerson ? 'הוספתי לך תור' : 'הוספתי תור';
-    return `${greeting}${prefix}: ${created.title} — ${when}${timeNote}, ${created.location}.${transportNote}`;
+    const base = `${greeting}${prefix}: ${created.title} — ${when}, ${created.location}.${transportNote}`;
+
+    if (!extracted.hasTime) {
+      // Don't fabricate a time. Save the date now, then offer to fill the hour in.
+      if (senderWaId) {
+        await this.conversation.setPendingAction(senderWaId, {
+          kind: 'awaitTime',
+          appointmentId: created.id,
+          summary: created.title,
+        });
+      }
+      return `${base}\nלא ציינת שעה — באיזו שעה התור? (אפשר גם להשאיר ככה ולעדכן אחר כך)`;
+    }
+    return base;
   }
 
   private async handleWakeUpdate(
     payload: string,
     replyOpts: PatientReplyOptions,
+    senderWaId?: string,
   ): Promise<string> {
     const greeting = this.greeting(replyOpts);
     if (looksLikeNewAppointment(payload)) {
-      return this.handleWakeCreate(payload, replyOpts);
+      return this.handleWakeCreate(payload, replyOpts, senderWaId);
     }
 
     const extracted = await this.ai.extractAppointmentUpdateDelta(
@@ -352,7 +441,7 @@ export class WhatsappService {
     }
     if (lookup.status === 'unresolved') {
       if (looksLikeNewAppointment(payload) || parseAppointmentWhenFromText(payload)) {
-        return this.handleWakeCreate(payload, replyOpts);
+        return this.handleWakeCreate(payload, replyOpts, senderWaId);
       }
       return `${greeting}לא מצאתי תור לעדכון. אפשר לציין תאריך (למשל 25.5) או שם מרפאה.`;
     }
@@ -458,8 +547,7 @@ export class WhatsappService {
       }
     }
 
-    const showTime =
-      timeMentionedInMessage || !isLikelyDateOnlyTime(updated.dateTime);
+    const showTime = timeMentionedInMessage || updated.timeKnown;
     const when = formatAppointmentWhenHebrew(updated.dateTime, showTime);
     const timeNote = showTime ? '' : ' (שעה לא צוינה)';
     const addedNotes = patch.notes && patch.notes !== target.notes;
@@ -517,6 +605,7 @@ export class WhatsappService {
       transportNotes: row.transportNotes ?? '',
       createdAt: row.createdAt ?? new Date(0),
       dateTime: row.dateTime,
+      timeKnown: row.timeKnown ?? true,
     };
   }
 
@@ -620,7 +709,7 @@ export class WhatsappService {
 
     const row = lookup.appointment;
     const appointmentDate = new Date(row.dateTime);
-    const when = formatAppointmentWhenHebrew(appointmentDate, true);
+    const when = formatAppointmentWhenHebrew(appointmentDate, row.timeKnown);
 
     // Without an explicit wake word, confirm before deleting (DM safety guard).
     if (!hadWakeWord) {

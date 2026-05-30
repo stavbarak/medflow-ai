@@ -122,10 +122,12 @@ sequenceDiagram
   Note over W: Deterministic date from text beats model dateTime
   W->>G: filterNotesToSourceText (create only)
   G-->>AI: grounded notes
-  AI-->>C: WakeAppointmentFields
-  C->>P: create({ title, dateTime, location, notes })
-  P-->>U: confirmation Hebrew
+  AI-->>C: WakeAppointmentFields (incl. hasTime)
+  C->>P: create({ title, dateTime, timeKnown: hasTime, location, notes })
+  P-->>U: confirmation Hebrew (asks for the hour if hasTime was false)
 ```
+
+The extractor returns **`hasTime`** (did the message actually state an hour?). The WhatsApp create passes it straight through as `Appointment.timeKnown`, so a date-only booking is stored honestly instead of being anchored to a fake noon. When `hasTime` is false the bot saves the date and **asks for the time** (an `awaitTime` `PendingAction`) rather than guessing — see [Stage 4](stage-4-whatsapp-module.md).
 
 ### What `AiService` actually sends
 
@@ -252,6 +254,8 @@ There are now **two** read shapes, both grounded:
 
 This is what fixed “כמה פט סיטי יש” and “מה צריך לדעת לפני עירוי זומרה?”: those questions now pull past rows + counts instead of only the upcoming window.
 
+Each `toFactRow` also carries **`timeKnown`** and a `whenHebrew` that respects it: when an appointment was booked with no hour (`Appointment.timeKnown = false`), `whenHebrew` is **date-only** and the fact row says `timeKnown: false`. The prompt uses that flag so the model never states or "corrects" a time that was never given (the old bug where a date-only booking was grounded as a fabricated `12:00`). If the user supplies the hour, the model treats it as new info rather than a contradiction.
+
 ### The Hebrew-only guard
 
 After the model replies, `answerGroundedWithGuard` checks for stray Latin words (allowlisting `PET`/`CT`/`MRI`/`IV`); if found it retries once, then strips as a last resort — so leaks like “puedo” never ship.
@@ -292,6 +296,7 @@ The prompt is deliberately **short and conversational** rather than a long rule 
           role: 'system',
           content: `You are chatting in Hebrew on WhatsApp ... treat each new message as a direct continuation ...
 - rely ONLY on FACTS ... never invent transport/times ...
+- when "timeKnown": false, NO hour is set — give the date only, never assert/"correct" a time; if the user states one, treat it as new info ...
 - reply only in Hebrew (PET, CT, MRI, IV allowed) ...`,
         },
         ...this.historyMessages(history),

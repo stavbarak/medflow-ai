@@ -44,6 +44,7 @@ export class AppointmentsService {
       data: {
         title: dto.title,
         dateTime: new Date(dto.dateTime),
+        timeKnown: dto.timeKnown ?? true,
         location: dto.location,
         notes: dto.notes ?? '',
         transportNotes: dto.transportNotes ?? '',
@@ -82,6 +83,7 @@ export class AppointmentsService {
         title: dto.title,
         dateTime:
           dto.dateTime !== undefined ? new Date(dto.dateTime) : undefined,
+        timeKnown: dto.timeKnown,
         location: dto.location,
         notes: dto.notes,
         transportNotes: dto.transportNotes,
