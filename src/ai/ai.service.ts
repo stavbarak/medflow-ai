@@ -43,6 +43,10 @@ export class AiService {
       ? new OpenAI({
           apiKey: key,
           baseURL: baseURL || undefined,
+          // Fail fast instead of the SDK's 10-minute default, so a stuck/slow
+          // request surfaces as a quick error reply rather than silence.
+          timeout: 30_000,
+          maxRetries: 2,
         })
       : null;
   }

@@ -322,29 +322,33 @@ export class WhatsappService {
     const intent = classifyWakePayload(payload);
 
     try {
+      // NOTE: every branch must `return await` — otherwise a rejected promise
+      // escapes this try/catch and is silently dropped by the webhook handler.
       switch (intent) {
         case 'list':
-          return this.query.formatFactsDumpHebrew(
+          return await this.query.formatFactsDumpHebrew(
             await this.query.buildUpcomingFactsPayload(),
             replyOpts,
           );
         case 'question':
-          return this.query.answerWakeWord(text, replyOpts, history);
+          return await this.query.answerWakeWord(text, replyOpts, history);
         case 'cancel':
-          return this.handleWakeCancel(
+          return await this.handleWakeCancel(
             payload,
             replyOpts,
             hadWakeWord,
             senderWaId,
           );
         case 'create':
-          return this.handleWakeCreate(payload, replyOpts, senderWaId);
+          return await this.handleWakeCreate(payload, replyOpts, senderWaId);
         case 'update':
-          return this.handleWakeUpdate(payload, replyOpts, senderWaId);
+          return await this.handleWakeUpdate(payload, replyOpts, senderWaId);
       }
     } catch (err) {
-      this.logger.error(err instanceof Error ? err.message : err);
-      return 'לא הצלחתי לעבד את ההודעה. אפשר לנסח שוב?';
+      this.logger.error(
+        `composeReply failed (intent=${intent}): ${err instanceof Error ? err.stack ?? err.message : err}`,
+      );
+      return 'לא הצלחתי לעבד את ההודעה כרגע. נסו שוב בעוד רגע.';
     }
     return null;
   }

@@ -1,6 +1,7 @@
 node_modules
 dist
 plans
+summaries
 .env
 # Local copies with real phone numbers (templates are *.example.sql)
 scripts/seed-family-allowlist.sql

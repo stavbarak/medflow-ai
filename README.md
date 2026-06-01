@@ -4,7 +4,7 @@ Family medical-appointment helper API (NestJS + Prisma + PostgreSQL).
 
 MedFlowAI is a Hebrew-first family assistant for coordinating a single patient’s medical appointments: family members can add, update, cancel, and ask questions in natural WhatsApp messages (1:1 chats need no wake word; group chats use “חנטריש”), and the system stores everything in Postgres (appointments, prep notes, checklists, and optional transport) while using an LLM to extract structured details and answer grounded, conversational questions from the saved data.
 
-**New here?** Friendly write-ups live in **[`summaries/`](summaries/README.md)** (stages, Docker, Meta, deployment).
+**New here?** Start with **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — a short overview of what the app does, how the pieces connect, and where data is stored.
 
 ### Dates and time (Stage 2)
 
