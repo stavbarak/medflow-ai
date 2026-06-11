@@ -90,6 +90,16 @@ model MedicalDocument {
   createdAt        DateTime     @default(now())
 }
 
+/// Quick-access useful numbers: phones (clinic, doctor, taxi) but also IDs (ת"ז), member numbers...
+model UsefulContact {
+  id        String   @id @default(uuid())
+  name      String
+  value     String
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 /// Short-term per-sender conversation memory for WhatsApp follow-ups. Ephemeral: pruned aggressively.
 model ConversationTurn {
   id         String   @id @default(uuid())

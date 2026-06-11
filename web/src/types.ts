@@ -33,6 +33,24 @@ export function formatTransportCell(a: Appointment): string {
   return a.transportNotes?.trim() || '—';
 }
 
+export type UsefulContact = {
+  id: string;
+  name: string;
+  value: string;
+  notes: string;
+};
+
+/** True when a saved value looks like a dialable Israeli/intl phone (not a ת"ז etc.). */
+export function isPhoneLike(value: string): boolean {
+  const v = value.trim();
+  if (v.startsWith('+') || v.startsWith('*')) {
+    return true;
+  }
+  const digits = v.replace(/\D/g, '');
+  // Israeli numbers start 0 + area/mobile prefix (02-09); IDs like 012345678 don't.
+  return /^0[2-9]/.test(digits) && digits.length >= 8 && digits.length <= 11;
+}
+
 export type AuthResponse = {
   access_token: string;
   user: User;

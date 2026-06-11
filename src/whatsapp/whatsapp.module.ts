@@ -6,6 +6,7 @@ import { AppointmentsModule } from '../appointments/appointments.module';
 import { RequirementsModule } from '../requirements/requirements.module';
 import { QueryModule } from '../query/query.module';
 import { ConversationModule } from '../conversation/conversation.module';
+import { ContactsModule } from '../contacts/contacts.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ConversationModule } from '../conversation/conversation.module';
     RequirementsModule,
     QueryModule,
     ConversationModule,
+    ContactsModule,
   ],
   controllers: [WhatsappController],
   providers: [WhatsappService],

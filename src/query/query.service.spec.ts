@@ -20,6 +20,9 @@ describe('QueryService (Stage 3)', () => {
       findMany,
       count,
     },
+    usefulContact: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   const aiMock = {

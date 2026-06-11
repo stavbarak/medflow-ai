@@ -147,11 +147,19 @@ export class QueryService {
         ])
       : Promise.resolve(null);
 
-    const [upcoming, recentPast, keywordStats] = await Promise.all([
-      upcomingPromise,
-      recentPastPromise,
-      keywordStatsPromise,
-    ]);
+    // Useful contacts are few and tiny; always include them so "מה המספר של..." works.
+    const contactsPromise = this.prisma.usefulContact.findMany({
+      orderBy: { name: 'asc' },
+      select: { name: true, value: true, notes: true },
+    });
+
+    const [upcoming, recentPast, keywordStats, usefulContacts] =
+      await Promise.all([
+        upcomingPromise,
+        recentPastPromise,
+        keywordStatsPromise,
+        contactsPromise,
+      ]);
 
     return {
       generatedAt: now.toISOString(),
@@ -176,6 +184,7 @@ export class QueryService {
       recentPastAppointments: includePast
         ? recentPast.map((a) => this.toFactRow(a))
         : [],
+      usefulContacts,
     };
   }
 

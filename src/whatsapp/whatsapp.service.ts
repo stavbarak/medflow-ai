@@ -57,6 +57,8 @@ import { formatAppointmentTransportHebrew } from '../common/utils/appointment-tr
 import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import { personaNameFromLabel } from '../common/utils/family-persona';
 import { isAffirmation, isDecline } from '../common/utils/affirmation';
+import { parseContactSave } from '../common/utils/contact-save';
+import { ContactsService } from '../contacts/contacts.service';
 import {
   ConversationService,
   type ConversationTurnDto,
@@ -81,6 +83,7 @@ export class WhatsappService {
     private readonly familyMembers: FamilyMemberService,
     private readonly familyPersonas: FamilyPersonaService,
     private readonly conversation: ConversationService,
+    private readonly contacts: ContactsService,
   ) {}
 
   verifyWebhook(
@@ -319,6 +322,20 @@ export class WhatsappService {
     history: ConversationTurnDto[],
   ): Promise<string | null> {
     const payload = stripWakeWord(text);
+
+    // "Save this number" is deterministic (regex) — handle before intent classification.
+    const contactSave = parseContactSave(payload);
+    if (contactSave) {
+      try {
+        return await this.handleContactSave(contactSave, replyOpts);
+      } catch (err) {
+        this.logger.error(
+          `contact save failed: ${err instanceof Error ? err.message : err}`,
+        );
+        return 'לא הצלחתי לשמור את המספר. אפשר לנסות שוב?';
+      }
+    }
+
     const intent = classifyWakePayload(payload);
 
     try {
@@ -351,6 +368,21 @@ export class WhatsappService {
       return 'לא הצלחתי לעבד את ההודעה כרגע. נסו שוב בעוד רגע.';
     }
     return null;
+  }
+
+  /** Save or update a useful number (phone, ת"ז, member number...). */
+  private async handleContactSave(
+    save: { name: string; value: string },
+    replyOpts: PatientReplyOptions,
+  ): Promise<string> {
+    const greeting = this.greeting(replyOpts);
+    const existing = await this.contacts.findByName(save.name);
+    if (existing) {
+      await this.contacts.update(existing.id, { value: save.value });
+      return `${greeting}עדכנתי את המספר של ${existing.name}: ${save.value}.`;
+    }
+    await this.contacts.create({ name: save.name, value: save.value });
+    return `${greeting}שמרתי את המספר של ${save.name}: ${save.value}. אפשר לשאול אותי עליו מתי שצריך.`;
   }
 
   private async handleWakeCreate(

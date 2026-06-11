@@ -4,9 +4,10 @@ import type {
   Appointment,
   AuthResponse,
   Requirement,
+  UsefulContact,
   User,
 } from './types';
-import { formatTransportCell } from './types';
+import { formatTransportCell, isPhoneLike } from './types';
 import './App.css';
 
 function formatWhen(iso: string): string {
@@ -42,19 +43,25 @@ export default function App() {
   const [list, setList] = useState<Appointment[]>([]);
   const [question, setQuestion] = useState('מתי התור הבא?');
   const [answer, setAnswer] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<UsefulContact[]>([]);
+  const [contactName, setContactName] = useState('');
+  const [contactValue, setContactValue] = useState('');
+  const [contactNotes, setContactNotes] = useState('');
 
   const loadDashboard = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const [userRes, nextRes, allRes] = await Promise.all([
+      const [userRes, nextRes, allRes, contactsRes] = await Promise.all([
         api<User>('/api/users/me'),
         api<Appointment | null>('/api/appointments/next'),
         api<Appointment[]>('/api/appointments'),
+        api<UsefulContact[]>('/api/contacts'),
       ]);
       setMe(userRes);
       setNextAppt(nextRes);
       setList(allRes);
+      setContacts(contactsRes);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'שגיאה בטעינה';
       setError(msg);
@@ -138,6 +145,43 @@ export default function App() {
     setNextAppt(null);
     setList([]);
     setAnswer(null);
+    setContacts([]);
+  }
+
+  async function addContact(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api<UsefulContact>('/api/contacts', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: contactName,
+          value: contactValue,
+          notes: contactNotes || undefined,
+        }),
+      });
+      setContacts((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, 'he')),
+      );
+      setContactName('');
+      setContactValue('');
+      setContactNotes('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שמירת המספר נכשלה');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteContact(id: string) {
+    setError(null);
+    try {
+      await api(`/api/contacts/${id}`, { method: 'DELETE' });
+      setContacts((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'מחיקת המספר נכשלה');
+    }
   }
 
   async function ask() {
@@ -415,6 +459,83 @@ export default function App() {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="card flat">
+        <h2>מספרים שימושיים</h2>
+        <p className="muted small">
+          טלפונים של מרפאות ורופאים, ת"ז, מספרי מנוי — זמינים גם לבוט
+          ב-WhatsApp (אפשר לשאול "מה המספר של…").
+        </p>
+        {contacts.length === 0 ? (
+          <p className="muted">אין מספרים שמורים עדיין.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>שם</th>
+                  <th>מספר</th>
+                  <th>הערות</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {contacts.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td dir="ltr">
+                      {isPhoneLike(c.value) ? (
+                        <a href={`tel:${c.value.replace(/[^\d+*]/g, '')}`}>
+                          {c.value}
+                        </a>
+                      ) : (
+                        c.value
+                      )}
+                    </td>
+                    <td className="ellipsis">{c.notes || '—'}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => void deleteContact(c.id)}
+                      >
+                        מחיקה
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <form className="form row" onSubmit={addContact}>
+          <input
+            value={contactName}
+            onChange={(ev) => setContactName(ev.target.value)}
+            placeholder="שם (למשל: מרפאה אונקולוגית)"
+            required
+          />
+          <input
+            value={contactValue}
+            onChange={(ev) => setContactValue(ev.target.value)}
+            placeholder='מספר (טלפון, ת"ז…)'
+            required
+            dir="ltr"
+          />
+          <input
+            value={contactNotes}
+            onChange={(ev) => setContactNotes(ev.target.value)}
+            placeholder="הערות (לא חובה)"
+          />
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy || !contactName.trim() || !contactValue.trim()}
+          >
+            הוספה
+          </button>
+        </form>
       </section>
     </div>
   );

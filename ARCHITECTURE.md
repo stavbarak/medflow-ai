@@ -99,6 +99,7 @@ Everything lives in one **PostgreSQL** database, modeled in `[prisma/schema.pris
 | `**Appointment**`        | The shared calendar: title, `dateTime` (UTC), `timeKnown`, location, notes, transport, responsible | `timeKnown=false` ⇒ date-only booking; a real 12:00 stays distinct |
 | `**Requirement**`        | Per-appointment checklist items                                                                    | Shown in UI + AI facts                                             |
 | `**MedicalDocument**`    | File references (`fileUrl` + notes)                                                                | Optional link to an appointment                                    |
+| `**UsefulContact**`      | Quick-access numbers: phones (clinic, doctor, taxi) and IDs (ת"ז, member numbers)                  | Editable from web + WhatsApp; in AI facts so "מה המספר של…" works  |
 | `**PasswordResetToken**` | Hashed reset codes (WhatsApp OTP)                                                                  | Short-lived                                                        |
 | `**ConversationTurn**`   | Recent WhatsApp turns per sender                                                                   | Ephemeral; pruned (TTL + cap) + daily cron                         |
 | `**PendingAction**`      | One follow-up the bot is waiting on per sender                                                     | `cancel` (confirm before delete) or `awaitTime` (the missing hour) |
@@ -136,6 +137,7 @@ Full table-by-table notes: `[prisma/schema.prisma](prisma/schema.prisma)`.
 | Auth (register/login/JWT)                | `src/auth/`            |
 | Appointments CRUD                        | `src/appointments/`    |
 | Checklist                                | `src/requirements/`    |
+| Useful numbers                           | `src/contacts/`        |
 | Grounded Q&A (DB facts → answer)         | `src/query/`           |
 | LLM calls (extraction, Q&A, notes merge) | `src/ai/`              |
 | WhatsApp orchestration                   | `src/whatsapp/`        |

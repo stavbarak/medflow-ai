@@ -31,6 +31,11 @@ describe('WhatsappService dispatch', () => {
     appendTurn: jest.fn().mockResolvedValue(undefined),
     setPendingAction: jest.fn().mockResolvedValue(undefined),
   };
+  const contacts = {
+    findByName: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({}),
+    update: jest.fn().mockResolvedValue({}),
+  };
 
   let service: WhatsappService;
   let sent: string[];
@@ -47,6 +52,7 @@ describe('WhatsappService dispatch', () => {
       familyMembers as any,
       familyPersonas as any,
       conversation as any,
+      contacts as any,
     );
     sent = [];
     jest
@@ -108,6 +114,33 @@ describe('WhatsappService dispatch', () => {
     );
     expect(sent[0]).toContain('האם לבטל');
     expect(sent[0]).toContain('שירי,');
+  });
+
+  it('saves a useful number from a DM message', async () => {
+    await dispatch({
+      text: 'תשמור את המספר של ד"ר לוי: 03-1234567',
+      senderWaId: '972500000000',
+      replyTo: { type: 'individual', phone: '972500000000' },
+    });
+    expect(contacts.create).toHaveBeenCalledWith({
+      name: 'ד"ר לוי',
+      value: '03-1234567',
+    });
+    expect(sent[0]).toContain('שמרתי את המספר');
+  });
+
+  it('updates an existing contact instead of duplicating it', async () => {
+    contacts.findByName.mockResolvedValue({ id: 'c1', name: 'ד"ר לוי' });
+    await dispatch({
+      text: 'תשמור את המספר של ד"ר לוי: 03-7654321',
+      senderWaId: '972500000000',
+      replyTo: { type: 'individual', phone: '972500000000' },
+    });
+    expect(contacts.update).toHaveBeenCalledWith('c1', {
+      value: '03-7654321',
+    });
+    expect(contacts.create).not.toHaveBeenCalled();
+    expect(sent[0]).toContain('עדכנתי את המספר');
   });
 
   it('executes the pending cancel after an affirmation', async () => {
