@@ -148,4 +148,4 @@ Full table-by-table notes: `[prisma/schema.prisma](prisma/schema.prisma)`.
 | Web SPA                                  | `web/`                 |
 
 
-Setup, env vars, and the full API surface are in the `[README.md](README.md)`.
+Setup, env vars, and the full API surface are in the [`README.md`](README.md). For a longer human-oriented walkthrough, see [`GUIDE.md`](GUIDE.md).
