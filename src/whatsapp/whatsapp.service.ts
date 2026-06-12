@@ -198,10 +198,16 @@ export class WhatsappService {
       hadWakeWord,
       history,
     );
-    if (reply) {
-      await this.safeSend(message.replyTo, reply);
-      await this.recordTurns(message.senderWaId, text, reply);
+    const outbound =
+      reply?.trim() ||
+      'לא הצלחתי לעבד את ההודעה כרגע. נסו שוב בעוד רגע.';
+    if (!reply?.trim()) {
+      this.logger.warn(
+        `composeReply returned empty for ${message.senderWaId}; sending fallback`,
+      );
     }
+    await this.safeSend(message.replyTo, outbound);
+    await this.recordTurns(message.senderWaId, text, outbound);
   }
 
   private async patientReplyOptions(
@@ -765,8 +771,10 @@ export class WhatsappService {
     try {
       await this.sendWhatsappMessage(target, message);
     } catch (err) {
+      const preview =
+        message.length > 80 ? `${message.slice(0, 80)}…` : message;
       this.logger.error(
-        `Failed to send WhatsApp message (${target.type}): ${err instanceof Error ? err.message : err}`,
+        `Failed to send WhatsApp message (${target.type}, ${message.length} chars, preview="${preview}"): ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -838,6 +846,27 @@ export class WhatsappService {
     }
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private isTransientWhatsAppError(err: unknown): boolean {
+    if (!axios.isAxiosError(err)) {
+      return false;
+    }
+    const status = err.response?.status;
+    const body = err.response?.data as {
+      error?: { code?: number; is_transient?: boolean };
+    };
+    if (body?.error?.is_transient === true) {
+      return true;
+    }
+    if (body?.error?.code === 2) {
+      return true;
+    }
+    return status !== undefined && status >= 500;
+  }
+
   private async postWhatsAppMessage(
     target: WhatsappSendTarget,
     payload: Record<string, unknown>,
@@ -863,19 +892,29 @@ export class WhatsappService {
             to: target.phone.replace(/\D/g, ''),
           };
 
-    await axios.post(
-      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
-      {
-        ...base,
-        ...payload,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
+    const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
+    const body = { ...base, ...payload };
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    };
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await axios.post(url, body, { headers });
+        return;
+      } catch (err) {
+        if (attempt < maxAttempts && this.isTransientWhatsAppError(err)) {
+          this.logger.warn(
+            `WhatsApp send transient error (attempt ${attempt}/${maxAttempts}), retrying…`,
+          );
+          await this.sleep(1500 * attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   private isOutsideMessagingWindow(err: unknown): boolean {

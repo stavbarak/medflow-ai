@@ -147,18 +147,12 @@ export class QueryService {
         ])
       : Promise.resolve(null);
 
-    // Useful contacts are few and tiny; always include them so "מה המספר של..." works.
-    const contactsPromise = this.prisma.usefulContact.findMany({
-      orderBy: { name: 'asc' },
-      select: { name: true, value: true, notes: true },
-    });
-
     const [upcoming, recentPast, keywordStats, usefulContacts] =
       await Promise.all([
         upcomingPromise,
         recentPastPromise,
         keywordStatsPromise,
-        contactsPromise,
+        this.loadUsefulContacts(),
       ]);
 
     return {
@@ -215,7 +209,18 @@ export class QueryService {
         answer = stripDisallowedLatin(answer);
       }
     }
-    return answer;
+    return answer.trim() || 'לא מצאתי תשובה במערכת. נסו לנסח שוב.';
+  }
+
+  private async loadUsefulContacts() {
+    try {
+      return await this.prisma.usefulContact.findMany({
+        orderBy: { name: 'asc' },
+        select: { name: true, value: true, notes: true },
+      });
+    } catch {
+      return [];
+    }
   }
 
   async answerQuestion(question: string) {
