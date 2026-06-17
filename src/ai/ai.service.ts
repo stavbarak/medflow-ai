@@ -10,6 +10,7 @@ import {
   filterMergedNotes,
   filterNotesToSourceText,
 } from '../common/utils/notes-grounding';
+import { filterExtractedRequirements } from '../common/utils/requirement-filter';
 import {
   mergeWakeAppointmentExtraction,
   type WakeAppointmentFields,
@@ -93,12 +94,12 @@ export class AiService {
     const personas = await this.familyPersonaSuffix();
     const systemCreate = `You extract medical appointment information from Hebrew text for ONE patient (${label}). Return JSON with optional keys: title (specific visit type — never bare "תור" if details exist), location (when mentioned), transportDriver (first name only of who drives, e.g. "שירי", "עדי"), transportNotes (extra ride details: מונית, תחזיר, pickup time — NOT the driver's name), notes, requirements (array of { description }). Do NOT include dateTime.
 CRITICAL: put the driver's NAME in transportDriver, NOT in notes. Put מונית/תחזיר/return details in transportNotes.
-CRITICAL for notes: copy ONLY prep facts (blood tests, fasting, what to bring). Hebrew only.${personas}`;
+CRITICAL for notes: copy ONLY prep facts (blood tests, fasting, what to bring). Hebrew only.
+requirements: ONLY real family prep to-dos before the visit (forms, blood tests, fasting, things to bring). Omit entirely if none were mentioned. NEVER put appointment admin here (updating time/location/title/transport — those belong in other fields).${personas}`;
     const systemUpdate = `The user is adjusting an EXISTING appointment (${label}). Return JSON with optional keys:
-- requirements (array of { description }) if any new checklist items
 - transportDriver (first name only) if a new driver is specified — replaces previous driver
 - transportNotes (string) extra ride details only (מונית, תחזיר) — replaces previous transportNotes
-Do NOT include notes. Hebrew only.${personas}`;
+Do NOT include notes or requirements. Hebrew only.${personas}`;
     const completion = await openai.chat.completions.create({
       model: this.model,
       response_format: { type: 'json_object' },
@@ -123,6 +124,9 @@ Do NOT include notes. Hebrew only.${personas}`;
     const merged = mergeWakeAppointmentExtraction(parsed, text);
     if (mode === 'create' && merged.notes?.trim()) {
       merged.notes = filterNotesToSourceText(merged.notes, text);
+    }
+    if (merged.requirements?.length) {
+      merged.requirements = filterExtractedRequirements(merged.requirements);
     }
     return merged;
   }

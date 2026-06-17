@@ -581,14 +581,6 @@ export class WhatsappService {
 
     const updated = await this.appointments.update(target.id, patch);
 
-    if (extracted.requirements?.length) {
-      for (const r of extracted.requirements) {
-        await this.requirements.create(updated.id, {
-          description: r.description,
-        });
-      }
-    }
-
     const showTime = timeMentionedInMessage || updated.timeKnown;
     const when = formatAppointmentWhenHebrew(updated.dateTime, showTime);
     const timeNote = showTime ? '' : ' (שעה לא צוינה)';
