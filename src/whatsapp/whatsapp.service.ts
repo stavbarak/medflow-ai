@@ -10,7 +10,6 @@ import axios from 'axios';
 import * as crypto from 'crypto';
 import { AiService } from '../ai/ai.service';
 import { AppointmentsService } from '../appointments/appointments.service';
-import { RequirementsService } from '../requirements/requirements.service';
 import { QueryService } from '../query/query.service';
 import {
   formatAmbiguousCancelPromptHebrew,
@@ -31,15 +30,10 @@ import {
   textHasExplicitTime,
 } from '../common/utils/appointment-datetime';
 import { buildSchedulePatch } from '../common/utils/appointment-update-patch';
-import {
-  inferWakeAppointmentFields,
-  isPlaceholderLocation,
-  isPlaceholderTitle,
-} from '../common/utils/wake-appointment-fields';
+import { inferWakeAppointmentFields } from '../common/utils/wake-appointment-fields';
 import {
   classifyWakePayload,
   looksLikeNewAppointment,
-  looksLikeNotesUpdate,
 } from './whatsapp-wake-intent';
 import { containsWakeWord, stripWakeWord } from '../common/utils/wake-word';
 
@@ -54,7 +48,6 @@ import { FamilyMemberService } from '../phone-allowlist/family-member.service';
 import { PHONE_NOT_ON_ALLOWLIST_HE } from '../phone-allowlist/phone-allowlist.messages';
 import { FamilyPersonaService } from '../phone-allowlist/family-persona.service';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
-import { textMentionsTransport } from '../common/utils/transport-heuristic';
 import { personaNameFromLabel } from '../common/utils/family-persona';
 import { isAffirmation, isDecline } from '../common/utils/affirmation';
 import { parseContactSave } from '../common/utils/contact-save';
@@ -78,7 +71,6 @@ export class WhatsappService {
     private readonly config: ConfigService,
     private readonly ai: AiService,
     private readonly appointments: AppointmentsService,
-    private readonly requirements: RequirementsService,
     private readonly query: QueryService,
     private readonly familyMembers: FamilyMemberService,
     private readonly familyPersonas: FamilyPersonaService,
@@ -416,13 +408,12 @@ export class WhatsappService {
       extracted.location?.trim() ||
       inferred.location ||
       'ייקבע';
-    const resolvedTransport = textMentionsTransport(payload)
-      ? await this.familyPersonas.resolveTransportFromExtraction({
-          transportDriver: extracted.transportDriver,
-          transportNotes: extracted.transportNotes,
-          legacyTransport: extracted.transport,
-        })
-      : { transportUserId: null, transportNotes: '' };
+    const resolvedTransport =
+      await this.familyPersonas.resolveTransportFromExtraction({
+        transportDriver: extracted.transportDriver,
+        transportNotes: extracted.transportNotes,
+        legacyTransport: extracted.transport,
+      });
     const created = await this.appointments.create({
       title,
       dateTime: extracted.dateTime,
@@ -432,14 +423,6 @@ export class WhatsappService {
       transportUserId: resolvedTransport.transportUserId ?? undefined,
       transportNotes: resolvedTransport.transportNotes,
     });
-
-    if (extracted.requirements?.length) {
-      for (const r of extracted.requirements) {
-        await this.requirements.create(created.id, {
-          description: r.description,
-        });
-      }
-    }
 
     const when = formatAppointmentWhenHebrew(
       created.dateTime,
@@ -473,10 +456,6 @@ export class WhatsappService {
       return this.handleWakeCreate(payload, replyOpts, senderWaId);
     }
 
-    const extracted = await this.ai.extractAppointmentUpdateDelta(
-      payload,
-      replyOpts,
-    );
     const lookup = await this.resolveAppointmentForUpdate(payload);
     if (lookup.status === 'ambiguous') {
       return formatAmbiguousUpdatePromptHebrew(lookup.appointments);
@@ -488,95 +467,77 @@ export class WhatsappService {
       return `${greeting}לא מצאתי תור לעדכון. אפשר לציין תאריך (למשל 25.5) או שם מרפאה.`;
     }
     const target = lookup.appointment;
+    const row = await this.appointments.findOne(target.id);
 
-    const reconciled = await this.ai.reconcileAppointmentUpdate(
+    const { patch: schedulePatch, timeMentionedInMessage } =
+      buildSchedulePatch(payload, target);
+
+    const parsed = await this.ai.parseAppointmentUpdate(
       {
-        title: target.title,
-        location: target.location,
-        notes: target.notes ?? '',
-        dateTimeIso: new Date(target.dateTime).toISOString(),
+        title: row.title,
+        location: row.location,
+        notes: row.notes ?? '',
+        dateTimeIso: new Date(row.dateTime).toISOString(),
+        transportDriver: row.transportUser?.name ?? null,
+        transportNotes: row.transportNotes ?? '',
       },
       payload,
       replyOpts,
     );
 
-    const inferred = inferWakeAppointmentFields(payload);
     const patch: {
       title?: string;
       dateTime?: string;
+      timeKnown?: boolean;
       location?: string;
       notes?: string;
       transportUserId?: string | null;
       transportNotes?: string;
-    } = {};
+    } = { ...schedulePatch };
 
-    const { patch: schedulePatch, timeMentionedInMessage } =
-      buildSchedulePatch(payload, target);
-    Object.assign(patch, schedulePatch);
-
-    const titleCandidate =
-      reconciled.title || inferred.title || extracted.title?.trim();
-    if (titleCandidate && !isPlaceholderTitle(titleCandidate)) {
-      if (
-        isPlaceholderTitle(target.title) ||
-        (reconciled.title && reconciled.title !== target.title)
-      ) {
-        patch.title = titleCandidate;
-      }
+    if (parsed.title?.trim()) {
+      patch.title = parsed.title.trim();
+    }
+    if (parsed.location?.trim()) {
+      patch.location = parsed.location.trim();
+    }
+    if (parsed.notes !== undefined) {
+      patch.notes = parsed.notes;
     }
 
-    const locationCandidate =
-      reconciled.location ||
-      inferred.location ||
-      extracted.location?.trim();
-    if (locationCandidate && !isPlaceholderLocation(locationCandidate)) {
-      if (
-        isPlaceholderLocation(target.location) ||
-        (reconciled.location && reconciled.location !== target.location)
-      ) {
-        patch.location = locationCandidate;
-      }
-    }
-
-    if (
-      extracted.transportDriver?.trim() ||
-      extracted.transportNotes?.trim() ||
-      extracted.transport?.trim()
-    ) {
-      if (textMentionsTransport(payload)) {
+    if (parsed.transportDriver !== undefined) {
+      if (!parsed.transportDriver) {
+        patch.transportUserId = null;
+        if (parsed.transportNotes === undefined) {
+          patch.transportNotes = '';
+        }
+      } else {
         const resolved =
           await this.familyPersonas.resolveTransportFromExtraction({
-            transportDriver: extracted.transportDriver,
-            transportNotes: extracted.transportNotes,
-            legacyTransport: extracted.transport,
+            transportDriver: parsed.transportDriver,
+            transportNotes: parsed.transportNotes ?? undefined,
+            legacyTransport: undefined,
           });
         patch.transportUserId = resolved.transportUserId;
-        patch.transportNotes = resolved.transportNotes;
+        if (parsed.transportNotes !== undefined) {
+          patch.transportNotes = parsed.transportNotes ?? '';
+        } else if (resolved.transportNotes) {
+          patch.transportNotes = resolved.transportNotes;
+        }
       }
-    }
-
-    const shouldMergeNotes =
-      reconciled.mergeNotes || looksLikeNotesUpdate(payload);
-    if (shouldMergeNotes) {
-      const merged = await this.ai.mergeAppointmentNotes(
-        target.notes ?? '',
-        payload,
-        replyOpts,
-      );
-      if (merged && merged !== (target.notes ?? '').trim()) {
-        patch.notes = merged;
-      }
+    } else if (parsed.transportNotes !== undefined) {
+      patch.transportNotes = parsed.transportNotes ?? '';
     }
 
     if (
       !patch.dateTime &&
-      !patch.notes &&
+      patch.notes === undefined &&
       patch.transportUserId === undefined &&
       patch.transportNotes === undefined &&
       !patch.title &&
       !patch.location
     ) {
-      return `${greeting}לא זיהיתי מה להוסיף. אפשר לנסות: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או תוסיף ששירי תיקח.`;
+      return `${greeting}לא זיהיתי מה לעדכן. אפשר לנסות: חנטריש תעדכן שהתור ב-30.7 הוא בשעה 9:30, או שזה טלפוני בלי הסעה.`;
     }
 
     const updated = await this.appointments.update(target.id, patch);
@@ -584,35 +545,10 @@ export class WhatsappService {
     const showTime = timeMentionedInMessage || updated.timeKnown;
     const when = formatAppointmentWhenHebrew(updated.dateTime, showTime);
     const timeNote = showTime ? '' : ' (שעה לא צוינה)';
-    const addedNotes = patch.notes && patch.notes !== target.notes;
-    const addedTransport =
-      patch.transportUserId !== undefined ||
-      (patch.transportNotes !== undefined &&
-        patch.transportNotes !== (target.transportNotes ?? ''));
-    const suffixParts: string[] = [];
-    if (addedTransport) {
-      suffixParts.push('הסעה עודכנה');
-    }
-    if (addedNotes) {
-      suffixParts.push('הערות עודכנו');
-    }
-    const suffix = suffixParts.length
-      ? ` (${suffixParts.join(', ')})`
-      : '';
     const prefix = replyOpts.addressSecondPerson
       ? 'עדכנתי את התור שלך'
       : 'עדכנתי תור';
-    const transportLine = formatAppointmentTransportHebrew(
-      {
-        transportUser: updated.transportUser ?? null,
-        transportNotes: (updated as any).transportNotes ?? '',
-      },
-      {
-        addressSecondPerson: replyOpts.addressSecondPerson,
-        personas: await this.familyPersonas.getPersonas(),
-      },
-    );
-    return `${greeting}${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.${suffix}`;
+    return `${greeting}${prefix}: ${updated.title} — ${when}${timeNote}, ${updated.location}.`;
   }
 
   private async formatTransportNote(

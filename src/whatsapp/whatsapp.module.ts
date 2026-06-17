@@ -3,7 +3,6 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappController } from './whatsapp.controller';
 import { AiModule } from '../ai/ai.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
-import { RequirementsModule } from '../requirements/requirements.module';
 import { QueryModule } from '../query/query.module';
 import { ConversationModule } from '../conversation/conversation.module';
 import { ContactsModule } from '../contacts/contacts.module';
@@ -12,7 +11,6 @@ import { ContactsModule } from '../contacts/contacts.module';
   imports: [
     AiModule,
     AppointmentsModule,
-    RequirementsModule,
     QueryModule,
     ConversationModule,
     ContactsModule,

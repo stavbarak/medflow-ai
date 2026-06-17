@@ -231,7 +231,7 @@ export class QueryService {
         : 'אין תורים קרובים במערכת כרגע.';
     }
     const lines = [
-      second ? '📋 התורים והמשימות שלך:' : '📋 תורים ומשימות קרובים:',
+      second ? '📋 התורים שלך:' : '📋 תורים קרובים:',
       '',
     ];
     for (const a of upcomingAppointments) {

@@ -12,7 +12,6 @@ describe('WhatsappService dispatch', () => {
     findOnCalendarDay: jest.fn(),
     findAll: jest.fn(),
   };
-  const requirements = {};
   const query = {
     answerWakeWord: jest.fn().mockResolvedValue('תשובה'),
     formatFactsDumpHebrew: jest.fn().mockResolvedValue('רשימה'),
@@ -47,7 +46,6 @@ describe('WhatsappService dispatch', () => {
       config as any,
       ai as any,
       appointments as any,
-      requirements as any,
       query as any,
       familyMembers as any,
       familyPersonas as any,
