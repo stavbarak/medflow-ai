@@ -1,4 +1,3 @@
-import { looksLikeQuestion } from '../common/utils/question-heuristic';
 import { stripWakeWord } from '../common/utils/wake-word';
 import { textHasExplicitTime } from '../common/utils/appointment-datetime';
 
@@ -10,7 +9,7 @@ const CANCEL_RE =
   /(תבטל|תבטלי|בטל|בטלי|מחק|מחקי|ביטול|לבטל|להסיר|הסר|cancel)/iu;
 
 const UPDATE_RE =
-  /(התבלבל|תתקן|תתקני|תשנה|תשני|תעדכן|עדכן|תקן|תקני|לא נכון|תיקון|לתקן|לשנות|לעדכן|שנה את|שני את)/iu;
+  /(התבלבל|תתקן|תתקני|תשנה|תשני|תעדכן|עדכן|תקן|תקני|תיקון|לתקן|לשנות|לעדכן|שנה את|שני את)/iu;
 
 /** Booking a new appointment (not editing an existing one). */
 export const NEW_APPOINTMENT_RE =
@@ -97,7 +96,11 @@ export function looksLikeAppointmentUpdate(payload: string): boolean {
   return false;
 }
 
-/** Classify text after removing the wake word. */
+/**
+ * Route explicit calendar actions (cancel / book / edit). Everything else —
+ * questions, follow-ups, corrections, clarifications — is conversational Q&A
+ * (history + FACTS + LLM).
+ */
 export function classifyWakePayload(payload: string): WakeIntent {
   if (!payload) {
     return 'list';
@@ -110,9 +113,6 @@ export function classifyWakePayload(payload: string): WakeIntent {
   }
   if (looksLikeAppointmentUpdate(payload)) {
     return 'update';
-  }
-  if (looksLikeQuestion(payload)) {
-    return 'question';
   }
   if (DATE_HINT_RE.test(payload)) {
     return 'create';

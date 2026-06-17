@@ -138,7 +138,7 @@ describe('QueryService (Stage 3)', () => {
       string,
     ];
     const facts = JSON.parse(factsJson) as any;
-    expect(facts.scope.includePast).toBe(true);
+    expect(facts.recentPastAppointments).toBeDefined();
     expect(facts.stats?.keyword).toBe('פט סיטי');
     expect(facts.stats?.keywordTotalCount).toBe(4);
     // past + upcoming counts each queried

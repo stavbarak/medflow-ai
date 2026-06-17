@@ -8,7 +8,7 @@ import {
 } from './whatsapp-wake-intent';
 
 describe('classifyWakePayload', () => {
-  it('detects update/correction intent before create', () => {
+  it('detects update intent before create', () => {
     expect(
       classifyWakePayload('התבלבלת בתאריך, זה 25.5.2026 ותשנה את זה ל-11:00'),
     ).toBe('update');
@@ -81,5 +81,10 @@ describe('classifyWakePayload', () => {
     const payload =
       'תעדכן שבתור ב 14-7 בסוף שגיא יסיע ולא שירי';
     expect(classifyWakePayload(payload)).toBe('update');
+  });
+
+  it('defaults to question when the message is not an explicit calendar action', () => {
+    expect(classifyWakePayload('כן')).toBe('question');
+    expect(classifyWakePayload('לא')).toBe('question');
   });
 });

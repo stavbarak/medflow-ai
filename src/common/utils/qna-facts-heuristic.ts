@@ -1,27 +1,6 @@
 /**
- * Heuristics that decide how much data the Q&A facts payload should include.
- *
- * The bot answers questions from a JSON "facts" payload. Upcoming appointments are
- * always loaded; past appointments + keyword stats are only worth loading when the
- * question implies history, counting, prep, or a specific treatment/test.
+ * Best-effort treatment keyword for focused counts in the Q&A facts payload.
  */
-
-/** Past/"so far" markers (e.g. "כמה היו עד היום", "כבר", "בעבר"). */
-export function isPastOrSoFarQuestion(question: string): boolean {
-  return /(עד\s*היום|עד\s*כה|עד\s*עכשיו|עד\s*כאן|היה|כבר|בעבר|פעם|מה\s+היה|כמה\s+היו)/iu.test(
-    question,
-  );
-}
-
-/** Counting questions ("כמה ..."). */
-export function isCountQuestion(question: string): boolean {
-  return /(?<![א-ת])כמה(?![א-ת])/u.test(question);
-}
-
-/** Preparation questions ("מה צריך", "לפני", "להביא", "לדעת", "הכנה"). */
-export function isPrepQuestion(question: string): boolean {
-  return /(מה\s+צריך|לפני|להביא|לדעת|הכנה|להכין)/u.test(question);
-}
 
 const MULTI_WORD_TREATMENTS = ['פט סיטי', 'פט-סיטי', 'בדיקת דם'];
 const SINGLE_WORD_TREATMENTS = [
@@ -65,17 +44,4 @@ export function extractTreatmentKeyword(question: string): string | null {
     }
   }
   return null;
-}
-
-/**
- * Whether the Q&A payload should include past appointments + keyword stats
- * (anything beyond plain upcoming appointments).
- */
-export function needsExpandedFacts(question: string): boolean {
-  return (
-    isPastOrSoFarQuestion(question) ||
-    isCountQuestion(question) ||
-    isPrepQuestion(question) ||
-    extractTreatmentKeyword(question) != null
-  );
 }

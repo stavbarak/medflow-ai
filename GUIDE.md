@@ -2,7 +2,7 @@
 
 *MedFlowAI is a small, real-world project: a Hebrew-speaking bot that helps a family keep one patient’s medical calendar straight. This guide explains how it works at a human level — why we built it this way, how WhatsApp and Meta fit in, how we teach an LLM to answer from our data without making things up, and how we keep chat memory useful without letting it grow forever.*
 
-If you want a compact technical map (modules, tables, file paths), see **[`ARCHITECTURE.md`](ARCHITECTURE.md)**. If you want install commands and env vars, see **[`README.md`](README.md)**.
+If you want a compact technical map (modules, tables, file paths), see `**[ARCHITECTURE.md](ARCHITECTURE.md)*`*. If you want install commands and env vars, see `**[README.md](README.md)**`.
 
 ---
 
@@ -56,16 +56,18 @@ WhatsApp bots on the Cloud API are not magic plugins inside WhatsApp. They are *
 
 Think of four separate gifts:
 
-| Gift | What it is | Where it lives in MedFlowAI |
-|------|------------|------------------------------|
-| **Business + number** | A WhatsApp Business Account (WABA) and a phone line | Meta / WhatsApp Manager — not in code |
-| **Phone number ID** | An opaque ID Meta uses in API URLs (not the human `+972…` number) | `WHATSAPP_PHONE_NUMBER_ID` |
-| **Access token** | Proof your server may send messages | `WHATSAPP_ACCESS_TOKEN` |
-| **Webhook URL** | Public HTTPS endpoint Meta POSTs to when someone messages you | `https://your-host/api/whatsapp` |
+
+| Gift                  | What it is                                                        | Where it lives in MedFlowAI           |
+| --------------------- | ----------------------------------------------------------------- | ------------------------------------- |
+| **Business + number** | A WhatsApp Business Account (WABA) and a phone line               | Meta / WhatsApp Manager — not in code |
+| **Phone number ID**   | An opaque ID Meta uses in API URLs (not the human `+972…` number) | `WHATSAPP_PHONE_NUMBER_ID`            |
+| **Access token**      | Proof your server may send messages                               | `WHATSAPP_ACCESS_TOKEN`               |
+| **Webhook URL**       | Public HTTPS endpoint Meta POSTs to when someone messages you     | `https://your-host/api/whatsapp`      |
+
 
 You also invent a **verify token** (`WHATSAPP_VERIFY_TOKEN`) — any secret string you choose — and type the same value in Meta’s webhook settings. On first setup, Meta sends a GET request; your server echoes a challenge if the token matches.
 
-Optional but recommended in production: **`WHATSAPP_APP_SECRET`** so you can verify `X-Hub-Signature-256` on inbound POSTs.
+Optional but recommended in production: `**WHATSAPP_APP_SECRET`** so you can verify `X-Hub-Signature-256` on inbound POSTs.
 
 ### The loop
 
@@ -78,7 +80,7 @@ Receiving and sending use the **same token family**, but they are different HTTP
 
 In a **1:1 chat**, every message is for the bot.
 
-In a **group**, the bot ignores traffic unless the message contains the wake word **`חנטריש`**. That prevents it from jumping into normal family chatter.
+In a **group**, the bot ignores traffic unless the message contains the wake word `**חנטריש`**. That prevents it from jumping into normal family chatter.
 
 ### Tokens: temporary, permanent, and “why did send break?”
 
@@ -88,7 +90,7 @@ For production, teams usually create a **System User** token in Business Setting
 
 **Lessons from debugging:**
 
-- Meta’s **“Send message”** button on API Setup often sends the **`hello_world` template**. That template is only allowed from Meta’s **sandbox test number** (`+1 555…`), not from your real business line. A failure there does not mean your bot is broken.
+- Meta’s **“Send message”** button on API Setup often sends the `**hello_world` template**. That template is only allowed from Meta’s **sandbox test number** (`+1 555…`), not from your real business line. A failure there does not mean your bot is broken.
 - Error **code 2** (“retry later”, `is_transient: true`) is Meta’s “our API hiccuped” bucket — wait and retry.
 - Error **100 / subcode 33** on send (“object does not exist or missing permissions”) almost always means **token ↔ phone number ID ↔ WABA mismatch**. Fix permissions or paste the exact token that already worked in a manual test.
 - The bot can **compose a perfect Hebrew reply** and still show silence on the phone if **send** fails — always check server logs for `WhatsApp send failed`, not only whether OpenAI responded.
@@ -105,18 +107,41 @@ We do **not** embed documents into a vector database or fine-tune a model on the
 
 > **Load facts from Postgres → pass them as JSON → ask the model to answer in Hebrew using only those facts.**
 
-That is **grounded Q&A**, not open-ended chat. The database remains authoritative; the model is a **phrasing layer** at the edge.
+That is **grounded Q&A**, not open-ended chat. **Postgres holds the truth**; the model’s job is to answer in good Hebrew using only the facts we loaded — not to invent appointments or times.
 
 ### Two different jobs for the same model
 
-| Job | When | Model input | Server still owns |
-|-----|------|-------------|-------------------|
-| **Extraction** | User books or edits (“יש לאבא תור אונקולוגי ב-17.6 באיכילוב”) | Raw Hebrew text | Parsed dates, `timeKnown`, validated fields, saved rows |
-| **Grounded Q&A** | User asks (“מתי העירוי הבא?”, “מי מסיע?”) | Question + **facts JSON** + short history | What counts as true; counts; which appointments exist |
+
+| Job              | When                                                          | Model input                               | Server still owns                                       |
+| ---------------- | ------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------- |
+| **Extraction**   | User books or edits (“יש לאבא תור אונקולוגי ב-17.6 באיכילוב”) | Raw Hebrew text                           | Parsed dates, `timeKnown`, validated fields, saved rows |
+| **Grounded Q&A** | User asks (“מתי העירוי הבא?”, “מי מסיע?”)                     | Question + **facts JSON** + short history | What counts as true; counts; which appointments exist   |
+
 
 For **writes**, the model proposes structure; deterministic code parses dates, filters notes to what was actually said, and sets `timeKnown=false` when no hour was given so the bot **asks** instead of inventing 12:00.
 
-For **reads**, the model must not invent drivers, times, or counts. Prompts say so explicitly; a **Hebrew-only guard** retries or strips stray Latin words (with a small allowlist for PET, MRI, etc.) so answers stay readable in the family chat.
+For **reads**, the model must not invent drivers, times, or counts. The system prompt states that explicitly — in `AiService.answerQuestionFromFacts()` (`src/ai/ai.service.ts`):
+
+```258:261:src/ai/ai.service.ts
+What's true:
+- For appointments, times, places, transport/who-drives, prep, requirements and counts — rely ONLY on FACTS. Never invent them. If the info isn't there, just say so plainly (e.g. "לא צוין מי מסיע אותו") and, in the same breath, offer to add it — without restating the whole appointment.
+- When you do give a time/date/place, copy it exactly from FACTS.
+- Time may be unknown: when an appointment has "timeKnown": false, NO time has been set yet — only the date is known. Never state or imply a clock time for it, and never "correct" the user about its time.
+```
+
+The user message carries the database snapshot and the question; recent WhatsApp turns sit in between:
+
+```268:272:src/ai/ai.service.ts
+        ...this.historyMessages(history),
+        {
+          role: 'user',
+          content: `FACTS:\n${factsJson}\n\nשאלה:\n${question}`,
+        },
+```
+
+No tools, no SQL — just **FACTS JSON + question (+ short history)** → Hebrew reply.
+
+A **Hebrew-only guard** in `QueryService` retries or strips stray Latin words (with a small allowlist for PET, MRI, etc.) so answers stay readable in the family chat.
 
 ### Building the facts payload (smart laziness)
 
@@ -158,15 +183,17 @@ WhatsApp feels conversational. Follow-ups like “ומה עם הבא?” or “�
 
 ### Strategy: working memory, not an archive
 
-We store **`ConversationTurn`** rows per sender phone (`senderWaId`), each marked `user` or `assistant`.
+We store `**ConversationTurn`** rows per sender phone (`senderWaId`), each marked `user` or `assistant`.
 
 **On every append**, we prune that sender:
 
-| Rule | Value | Why |
-|------|-------|-----|
-| **TTL** | 60 minutes | Chat context is for *this session*, not medical records |
-| **Cap** | 20 turns kept | Even active threads cannot grow without bound |
-| **Read window** | Last **10** turns passed to the model | Enough for follow-ups; not the whole cap |
+
+| Rule            | Value                                 | Why                                                     |
+| --------------- | ------------------------------------- | ------------------------------------------------------- |
+| **TTL**         | 60 minutes                            | Chat context is for *this session*, not medical records |
+| **Cap**         | 20 turns kept                         | Even active threads cannot grow without bound           |
+| **Read window** | Last **10** turns passed to the model | Enough for follow-ups; not the whole cap                |
+
 
 Prune-on-write happens in `appendTurn()` → `pruneSender()` in the same file (TTL + cap on every new message).
 
@@ -192,14 +219,14 @@ A **daily cron** in `ConversationService.sweepOldData()` deletes turns older tha
   }
 ```
 
-Medical facts live in **`Appointment`**, not in chat history. When memory expires, the user can still ask “מתי התור?” because the calendar did not forget — only the small talk buffer cleared.
+Medical facts live in `**Appointment**`, not in chat history. When memory expires, the user can still ask “מתי התור?” because the calendar did not forget — only the small talk buffer cleared.
 
 ### Pending actions: memory for “we’re mid-flow”
 
-Some flows need one explicit follow-up, stored separately in **`PendingAction`** (at most **one row per sender**):
+Some flows need one explicit follow-up, stored separately in `**PendingAction**` (at most **one row per sender**):
 
-- **`cancel`** — bot asked “לבטל את התור?”; next “כן” confirms deletion.
-- **`awaitTime`** — appointment saved **date-only** (`timeKnown=false`); bot waits for an hour.
+- `**cancel`** — bot asked “לבטל את התור?”; next “כן” confirms deletion.
+- `**awaitTime**` — appointment saved **date-only** (`timeKnown=false`); bot waits for an hour.
 
 Pending rows carry a **short TTL** (5 minutes). If the user ignores the prompt and asks something else, the pending row is consumed and normal routing resumes.
 
@@ -253,34 +280,55 @@ EOF
 
 ### How to read failures
 
-| Response | Likely meaning |
-|----------|----------------|
-| `{"messages":[{"id":"wamid…"}]}` | Send path OK — debug Nest/webhook next |
-| `code 190` | Invalid or literal `TOKEN` placeholder — paste a real token |
-| `code 100` / subcode `33` | Token cannot use this **phone number ID** — fix WABA permissions |
-| `code 2`, `is_transient: true` | Meta-side flake — retry |
-| `#131058` hello_world | You tried the template from a real business number — use `type:text` instead |
-| `#131047` | 24-hour window — message the business number first, then retry |
 
-If curl works with a given token but Railway does not, **`WHATSAPP_ACCESS_TOKEN` on the host is not the same string** — sync them and redeploy.
+| Response                         | Likely meaning                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `{"messages":[{"id":"wamid…"}]}` | Send path OK — debug Nest/webhook next                                       |
+| `code 190`                       | Invalid or literal `TOKEN` placeholder — paste a real token                  |
+| `code 100` / subcode `33`        | Token cannot use this **phone number ID** — fix WABA permissions             |
+| `code 2`, `is_transient: true`   | Meta-side flake — retry                                                      |
+| `#131058` hello_world            | You tried the template from a real business number — use `type:text` instead |
+| `#131047`                        | 24-hour window — message the business number first, then retry               |
+
+
+If curl works with a given token but Railway does not, `**WHATSAPP_ACCESS_TOKEN` on the host is not the same string** — sync them and redeploy.
 
 ---
 
 ## Part 5 — What a message actually does (WhatsApp)
 
-A simplified path for a question in a 1:1 chat:
+A simplified path for a message in a 1:1 chat:
 
+```mermaid
+flowchart TD
+  IN["Inbound WhatsApp text<br/>(Meta POST /api/whatsapp)"] --> ALLOW{"Phone on<br/>family roster?"}
+  ALLOW -->|no| REJ["Send Hebrew rejection"]
+  ALLOW -->|yes| PEND{"Pending follow-up?<br/>(cancel / awaitTime)"}
+  PEND -->|handled| SEND["POST reply via Graph API"]
+  PEND -->|fall through| INTENT{"Classify intent"}
+
+  INTENT -->|list| LIST["Format upcoming from DB<br/>(no LLM)"]
+  INTENT -->|question| QNA["QueryService: facts JSON<br/>+ recent turns"]
+  QNA --> AIQ["AiService: grounded answer"]
+  INTENT -->|create / update| EXT["WhatsappService:<br/>extract / reconcile"]
+  EXT --> AIE["AiService: extraction"]
+  AIE --> APT["AppointmentsService → Postgres"]
+  INTENT -->|cancel| CAN["Match appointment<br/>(confirm if needed)"]
+  LIST --> DB[(Postgres)]
+  AIQ --> DB
+  CAN --> DB
+
+  LIST --> SEND
+  AIQ --> SEND
+  APT --> SEND
+  CAN --> SEND
+
+  SEND --> MEM["Append user + assistant<br/>ConversationTurn"]
 ```
-Inbound text
-    → allowed phone?
-    → pending action to resolve? (cancel / awaitTime)
-    → classify intent (list / question / create / update / cancel)
-    → list: format upcoming from DB (no LLM)
-    → question: build facts JSON + recent turns → grounded answer
-    → create/update/cancel: extract fields → AppointmentsService
-    → POST reply to Graph API
-    → append user + assistant turns to ConversationTurn
-```
+
+
+
+Source for PNG export: `[diagram-message-path.mmd](diagram-message-path.mmd)` — `npx @mermaid-js/mermaid-cli -i diagram-message-path.mmd -o message-path.png`
 
 **List** (`חנטריש` alone) is intentionally LLM-free — fast, cheap, and a good health check when OpenAI or facts loading misbehaves.
 
@@ -298,13 +346,13 @@ MedFlowAI is small on purpose: one patient, one database, one API, two clients. 
 
 If you are building something similar, steal the patterns, not the domain:
 
-1. **Ground with JSON facts**, not vibes.  
-2. **Separate extraction from Q&A** and keep parsers on the server.  
-3. **Cap and TTL chat memory**; store workflows in explicit state machines (`PendingAction`).  
-4. **Test WhatsApp send with curl** before blaming your orchestration code.  
+1. **Ground with JSON facts**, not vibes.
+2. **Separate extraction from Q&A** and keep parsers on the server.
+3. **Cap and TTL chat memory**; store workflows in explicit state machines (`PendingAction`).
+4. **Test WhatsApp send with curl** before blaming your orchestration code.
 5. **Read Meta’s error codes literally** — they distinguish their outage, your token, and your template mistakes.
 
-The codebase is open in this repo; [`ARCHITECTURE.md`](ARCHITECTURE.md) maps files to concepts when you are ready to dive in.
+The codebase is open in this repo; `[ARCHITECTURE.md](ARCHITECTURE.md)` maps files to concepts when you are ready to dive in.
 
 ---
 

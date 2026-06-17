@@ -10,10 +10,7 @@ import {
   transportUserDisplay,
   transportUserSelect,
 } from '../common/utils/user-profile';
-import {
-  extractTreatmentKeyword,
-  needsExpandedFacts,
-} from '../common/utils/qna-facts-heuristic';
+import { extractTreatmentKeyword } from '../common/utils/qna-facts-heuristic';
 import {
   hasDisallowedLatin,
   stripDisallowedLatin,
@@ -112,15 +109,11 @@ export class QueryService {
     };
   }
 
-  /**
-   * Expanded facts for Q&A: always upcoming; past + focused keyword stats are added
-   * when the question implies history, counting, prep, or a specific treatment/test.
-   */
+  /** Grounded Q&A facts: full calendar slice for the LLM; keyword stats when named in this turn. */
   async buildQnAFactsPayload(question: string) {
     const now = new Date();
     const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-    const includePast = needsExpandedFacts(question);
     const keyword = extractTreatmentKeyword(question);
 
     const upcomingPromise = this.loadAppointmentsForFacts({
@@ -128,14 +121,12 @@ export class QueryService {
       order: 'asc',
       take: 30,
     });
-    const recentPastPromise = includePast
-      ? this.loadAppointmentsForFacts({
-          from: pastFrom,
-          to: now,
-          order: 'desc',
-          take: 200,
-        })
-      : Promise.resolve([]);
+    const recentPastPromise = this.loadAppointmentsForFacts({
+      from: pastFrom,
+      to: now,
+      order: 'desc',
+      take: 200,
+    });
     const keywordStatsPromise = keyword
       ? Promise.all([
           this.prisma.appointment.count({
@@ -164,7 +155,6 @@ export class QueryService {
         recentPastLimit: 200,
         upcomingCount: upcoming.length,
         recentPastCount: recentPast.length,
-        includePast,
       },
       stats: keywordStats
         ? {
@@ -175,9 +165,7 @@ export class QueryService {
           }
         : undefined,
       upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
-      recentPastAppointments: includePast
-        ? recentPast.map((a) => this.toFactRow(a))
-        : [],
+      recentPastAppointments: recentPast.map((a) => this.toFactRow(a)),
       usefulContacts,
     };
   }
