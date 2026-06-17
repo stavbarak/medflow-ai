@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { formatAppointmentWhenHebrew } from '../common/utils/appointment-datetime';
+import { formatAppointmentWhenHebrew, jerusalemCalendarDayRange } from '../common/utils/appointment-datetime';
 import { formatAppointmentTransportHebrew } from '../common/utils/appointment-transport';
 import { type PatientReplyOptions } from '../common/utils/patient-address';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,7 +10,10 @@ import {
   transportUserDisplay,
   transportUserSelect,
 } from '../common/utils/user-profile';
-import { extractTreatmentKeyword } from '../common/utils/qna-facts-heuristic';
+import {
+  extractTreatmentKeyword,
+  keywordCountForQuestion,
+} from '../common/utils/qna-facts-heuristic';
 import {
   hasDisallowedLatin,
   stripDisallowedLatin,
@@ -95,7 +98,10 @@ export class QueryService {
     };
   }
 
-  private keywordWhere(keyword: string, dateTime: { lt?: Date; gte?: Date }) {
+  private keywordFilter(
+    keyword: string,
+    dateTime?: { gte?: Date; lt?: Date },
+  ) {
     return {
       AND: [
         {
@@ -104,8 +110,29 @@ export class QueryService {
             { notes: { contains: keyword, mode: 'insensitive' as const } },
           ],
         },
-        { dateTime },
+        ...(dateTime ? [{ dateTime }] : []),
       ],
+    };
+  }
+
+  /** Counts + rows for one treatment keyword (title/notes match). */
+  private async loadKeywordStats(keyword: string, now: Date) {
+    const pastFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const { end: endOfToday } = jerusalemCalendarDayRange(now);
+    const rows = await this.prisma.appointment.findMany({
+      where: this.keywordFilter(keyword, { gte: pastFrom }),
+      orderBy: { dateTime: 'asc' },
+      include: QueryService.factsInclude,
+    });
+    const beforeNow = rows.filter((r) => r.dateTime < now).length;
+    const fromNowOn = rows.length - beforeNow;
+    const throughEndOfToday = rows.filter((r) => r.dateTime < endOfToday).length;
+    const totalMatching = rows.length;
+    const buckets = { beforeNow, fromNowOn, throughEndOfToday, totalMatching };
+    return {
+      keyword,
+      appointments: rows.map((a) => this.toFactRow(a)),
+      ...buckets,
     };
   }
 
@@ -128,14 +155,7 @@ export class QueryService {
       take: 200,
     });
     const keywordStatsPromise = keyword
-      ? Promise.all([
-          this.prisma.appointment.count({
-            where: this.keywordWhere(keyword, { lt: now }),
-          }),
-          this.prisma.appointment.count({
-            where: this.keywordWhere(keyword, { gte: now }),
-          }),
-        ])
+      ? this.loadKeywordStats(keyword, now)
       : Promise.resolve(null);
 
     const [upcoming, recentPast, keywordStats, usefulContacts] =
@@ -145,6 +165,14 @@ export class QueryService {
         keywordStatsPromise,
         this.loadUsefulContacts(),
       ]);
+
+    const stats = keywordStats
+      ? {
+          keyword: keywordStats.keyword,
+          count: keywordCountForQuestion(question, keywordStats),
+          appointments: keywordStats.appointments,
+        }
+      : undefined;
 
     return {
       generatedAt: now.toISOString(),
@@ -156,14 +184,7 @@ export class QueryService {
         upcomingCount: upcoming.length,
         recentPastCount: recentPast.length,
       },
-      stats: keywordStats
-        ? {
-            keyword,
-            keywordPastCount: keywordStats[0],
-            keywordUpcomingCount: keywordStats[1],
-            keywordTotalCount: keywordStats[0] + keywordStats[1],
-          }
-        : undefined,
+      stats,
       upcomingAppointments: upcoming.map((a) => this.toFactRow(a)),
       recentPastAppointments: recentPast.map((a) => this.toFactRow(a)),
       usefulContacts,

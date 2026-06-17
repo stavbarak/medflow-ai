@@ -45,3 +45,26 @@ export function extractTreatmentKeyword(question: string): string | null {
   }
   return null;
 }
+
+/** Which precomputed bucket answers this count question — not phrasing, just arithmetic. */
+export function keywordCountForQuestion(
+  question: string,
+  counts: {
+    beforeNow: number;
+    fromNowOn: number;
+    throughEndOfToday: number;
+    totalMatching: number;
+  },
+): number {
+  const q = question.trim();
+  if (/כולל\s*(?:ה)?יום|(?:עד\s*)?היום/u.test(q)) {
+    return counts.throughEndOfToday;
+  }
+  if (/עוד\s|יהיו|בעתיד|נשאר/u.test(q)) {
+    return counts.fromNowOn;
+  }
+  if (/כבר|(?<![א-ת])היו(?![א-ת])|עשה|עשו/u.test(q)) {
+    return counts.beforeNow;
+  }
+  return counts.totalMatching;
+}

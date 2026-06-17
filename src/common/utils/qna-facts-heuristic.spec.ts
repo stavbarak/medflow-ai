@@ -1,4 +1,4 @@
-import { extractTreatmentKeyword } from './qna-facts-heuristic';
+import { extractTreatmentKeyword, keywordCountForQuestion } from './qna-facts-heuristic';
 
 describe('qna-facts-heuristic', () => {
   it('extracts treatment keywords (multi-word, infusion, single)', () => {
@@ -8,5 +8,18 @@ describe('qna-facts-heuristic', () => {
     );
     expect(extractTreatmentKeyword('כמה עירויי קיטרודה היו?')).toBe('קיטרודה');
     expect(extractTreatmentKeyword('מתי התור הבא?')).toBeNull();
+  });
+
+  it('picks throughEndOfToday when the question includes today', () => {
+    const buckets = {
+      beforeNow: 1,
+      fromNowOn: 1,
+      throughEndOfToday: 2,
+      totalMatching: 2,
+    };
+    expect(
+      keywordCountForQuestion('כמה קיטרודה היו? כולל היום', buckets),
+    ).toBe(2);
+    expect(keywordCountForQuestion('כמה קיטרודה היו?', buckets)).toBe(1);
   });
 });

@@ -126,9 +126,19 @@ describe('QueryService (Stage 3)', () => {
     expect(answer).toBe('42.');
   });
 
-  it('includes past appointments + keyword stats for count questions', async () => {
-    findMany.mockResolvedValue([]);
-    count.mockResolvedValue(2);
+  it('includes keyword stats + matching rows for count questions', async () => {
+    const dt1 = new Date('2026-06-01T08:00:00.000Z');
+    const dt2 = new Date('2026-06-15T08:00:00.000Z');
+    findMany.mockImplementation((args) => {
+      const where = JSON.stringify(args?.where ?? '');
+      if (where.includes('פט סיטי')) {
+        return Promise.resolve([
+          { id: '1', title: 'פט סיטי', dateTime: dt1, timeKnown: true, location: 'x', notes: '', transportNotes: '', requirements: [], responsibleUser: null, transportUser: null },
+          { id: '2', title: 'פט סיטי', dateTime: dt2, timeKnown: true, location: 'x', notes: '', transportNotes: '', requirements: [], responsibleUser: null, transportUser: null },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
     answerQuestionFromFacts.mockResolvedValue('יש שני פט סיטי.');
 
     await service.answerQuestion('כמה פט סיטי יש?');
@@ -138,11 +148,9 @@ describe('QueryService (Stage 3)', () => {
       string,
     ];
     const facts = JSON.parse(factsJson) as any;
-    expect(facts.recentPastAppointments).toBeDefined();
     expect(facts.stats?.keyword).toBe('פט סיטי');
-    expect(facts.stats?.keywordTotalCount).toBe(4);
-    // past + upcoming counts each queried
-    expect(count).toHaveBeenCalledTimes(2);
+    expect(facts.stats?.count).toBe(2);
+    expect(facts.stats?.appointments).toHaveLength(2);
   });
 
   it('retries once then strips stray non-Hebrew words (Hebrew-only guard)', async () => {
